@@ -56,8 +56,7 @@ function applyBooleanSubtraction(geometry, text, font, textScale, textSpacing, t
   console.log('✅ Base brush created');
   console.log('   Vertices:', geometry.attributes.position.count);
   
-  const numChars = text.length;
-  console.log(`📝 Creating ${numChars} text meshes for "${text}"...`);
+  console.log(`📝 Creating text geometry for "${text}"...`);
   
   const textMeshes = [];
   const evaluator = new Evaluator();
@@ -66,116 +65,80 @@ function applyBooleanSubtraction(geometry, text, font, textScale, textSpacing, t
   // Calculate appropriate text size (use textScale parameter)
   const textHeight = size.y * textScale;
   
-  // First pass: create all character geometries to measure their actual widths
-  const charData = [];
-  let totalTextWidth = 0;
+  // Create the entire text as a single geometry - this preserves proper baseline, kerning, and descenders
+  const textGeom = new TextGeometry(text, {
+    font: font,
+    size: textHeight,
+    height: 5, // Extrusion depth for boolean subtraction
+    curveSegments: 12,
+    bevelEnabled: false,
+  });
   
-  for (let i = 0; i < numChars; i++) {
-    const char = text[i];
-    
-    if (char === ' ') {
-      const spaceWidth = textHeight * 0.5;
-      charData.push({ char, width: spaceWidth, geometry: null });
-      totalTextWidth += spaceWidth;
-      continue;
+  // Compute bounding box for positioning
+  textGeom.computeBoundingBox();
+  const textBBox = textGeom.boundingBox;
+  const textWidth = textBBox.max.x - textBBox.min.x;
+  const textHeightActual = textBBox.max.y - textBBox.min.y;
+  
+  console.log(`   Text dimensions: width=${textWidth.toFixed(3)}, height=${textHeightActual.toFixed(3)}`);
+  
+  // Ensure text geometry only has standard attributes
+  for (const name in textGeom.attributes) {
+    if (!allowedAttributes.includes(name)) {
+      textGeom.deleteAttribute(name);
     }
-
-    const tempGeom = new TextGeometry(char, {
-      font: font,
-      size: textHeight,
-      height: 5,
-      curveSegments: 12,
-      bevelEnabled: false,
-    });
-    tempGeom.computeBoundingBox();
-    const charWidth = tempGeom.boundingBox.max.x - tempGeom.boundingBox.min.x;
-    charData.push({ char, width: charWidth, geometry: tempGeom });
-    totalTextWidth += charWidth;
   }
   
-  // Add spacing between characters
-  const spacingGap = textHeight * textSpacing; // spacing proportional to text height
-  totalTextWidth += spacingGap * (numChars - 1);
-  
-  // Calculate the origin point (starting X position, centered)
-  const originX = center.x - totalTextWidth / 2 + (textOffsetX * size.x);
-  const originY = center.y + (textOffsetY * size.y);
+  // Calculate position - center the text
+  // textOffsetX and textOffsetY are relative adjustments
+  const originX = center.x - textWidth / 2 + (textOffsetX * size.x);
+  // For Y positioning, we use the baseline (min.y of the text bbox) to ensure proper alignment
+  // The text's min.y is at 0 after generation, and descenders go below 0
+  const originY = center.y - textHeightActual / 2 + (textOffsetY * size.y);
   const originZ = center.z + (textDepth * size.z);
   
   // Rotation angle in radians
   const rotationRad = (textRotation * Math.PI) / 180;
-  const cosAngle = Math.cos(rotationRad);
-  const sinAngle = Math.sin(rotationRad);
   
-  // Second pass: position and subtract each character
-  let currentX = 0; // cumulative X position
+  console.log(`   Position: (${originX.toFixed(2)}, ${originY.toFixed(2)}, ${originZ.toFixed(2)}), rotation: ${textRotation}°`);
   
-  for (let i = 0; i < numChars; i++) {
-    const { char, width, geometry: textGeom } = charData[i];
+  try {
+    // Translate so left bottom corner is at origin (for proper rotation pivot)
+    textGeom.translate(-textBBox.min.x, -textBBox.min.y, -textBBox.min.z);
     
-    // Skip boolean subtraction for spaces, but still advance position
-    if (char === ' ') {
-      currentX += width + spacingGap;
-      continue;
-    }
-
-    // Ensure text geometry only has standard attributes
-    for (const name in textGeom.attributes) {
-      if (!allowedAttributes.includes(name)) {
-        textGeom.deleteAttribute(name);
-      }
-    }
-
-    // Calculate local position relative to origin (before rotation)
-    const localX = currentX;
-    const localY = 0;
+    // Store text mesh info for visualization
+    const visualGeom = textGeom.clone();
+    textMeshes.push({ 
+      x: originX, 
+      y: originY, 
+      z: originZ, 
+      text: text, 
+      geometry: visualGeom, 
+      rotation: textRotation,
+      width: textWidth,
+      height: textHeightActual
+    });
     
-    // Apply rotation around origin
-    const rotatedX = localX * cosAngle - localY * sinAngle;
-    const rotatedY = localX * sinAngle + localY * cosAngle;
+    // Create text brush
+    const textBrush = new Brush(textGeom);
+    textBrush.position.set(originX, originY, originZ);
     
-    // Final world position
-    const x = originX + rotatedX;
-    const y = originY + rotatedY;
-    const z = originZ;
+    // Apply rotation around Z-axis
+    textBrush.rotation.z = rotationRad;
     
-    console.log(`   Char ${i + 1} "${char}": pos=(${x.toFixed(2)}, ${y.toFixed(2)}, ${z.toFixed(2)}), width=${width.toFixed(3)}`);
+    textBrush.updateMatrixWorld();
     
-    try {
-      // Set left bottom corner as origin (anchor point for transformations)
-      const textBBox = textGeom.boundingBox;
-      
-      // Translate so left (min X), bottom (min Y), back (min Z) corner is at origin
-      textGeom.translate(-textBBox.min.x, -textBBox.min.y, -textBBox.min.z);
-      
-      // Store text mesh info for visualization (with geometry anchored at left-bottom corner)
-      const visualGeom = textGeom.clone();
-      textMeshes.push({ x, y, z, char, geometry: visualGeom, rotation: textRotation });
-      
-      // Create text brush with anchored geometry
-      const textBrush = new Brush(textGeom);
-      textBrush.position.set(x, y, z);
-      
-      // Apply rotation around Z-axis (all text rotates together)
-      textBrush.rotation.z = rotationRad;
-      
-      textBrush.updateMatrixWorld();
-      
-      // Perform subtraction
-      result = evaluator.evaluate(result, textBrush, SUBTRACTION);
-      console.log(`   ✅ Char ${i + 1} "${char}" subtracted - Result has ${result.geometry.attributes.position.count} vertices`);
-      
-      textGeom.dispose();
-    } catch (error) {
-      console.error(`   ❌ Failed to subtract char ${i + 1} "${char}":`, error);
-    }
+    // Perform subtraction
+    result = evaluator.evaluate(result, textBrush, SUBTRACTION);
+    console.log(`   ✅ Text subtracted - Result has ${result.geometry.attributes.position.count} vertices`);
     
-    // Advance X position for next character
-    currentX += width + spacingGap;
+    textGeom.dispose();
+  } catch (error) {
+    console.error(`   ❌ Failed to subtract text:`, error);
   }
   
   // Pass text meshes to callback for visualization
-  console.log(`📦 Storing ${textMeshes.length} text meshes for visualization`);
+  console.log(`📦 Storing text mesh for visualization`);
   if (setTextMeshesCallback) {
     setTextMeshesCallback(textMeshes);
   }
@@ -202,31 +165,28 @@ function ModelViewer({
   textDepth = 0,
   textRotation = 0,
   showText = true,
-  subdivisionLevel = 0, 
+  subdivisionLevel = 0,
+  fixedScale = null, // Optional: use fixed scale instead of auto-calculated
   onGeometryReady = null 
 }) {
   const groupRef = useRef();
   const [obj, setObj] = useState(null);
   const [normalizedScale, setNormalizedScale] = useState(1);
   const [originalGeometry, setOriginalGeometry] = useState(null);
-  const [baseGeometry, setBaseGeometry] = useState(null); // Geometry after subdivision, before scale
-  const [scaledGeometry, setScaledGeometry] = useState(null); // Geometry after scale, before twist
+  const [baseGeometry, setBaseGeometry] = useState(null); // Geometry after subdivision
+  const [scaledGeometry, setScaledGeometry] = useState(null); // Geometry after X/Y/Z scale
+  const [inscribedGeometry, setInscribedGeometry] = useState(null); // Geometry after boolean subtraction
   const [textMeshes, setTextMeshes] = useState([]); // Store text meshes for visualization
   const [font, setFont] = useState(null); // Loaded font
   const onGeometryReadyRef = useRef(onGeometryReady);
 
-  // Font URLs mapping
+  // Font URLs mapping - mapped to closest available Three.js fonts
   const fontUrls = {
-    helvetiker: 'https://threejs.org/examples/fonts/helvetiker_bold.typeface.json',
-    helvetiker_regular: 'https://threejs.org/examples/fonts/helvetiker_regular.typeface.json',
-    optimer: 'https://threejs.org/examples/fonts/optimer_bold.typeface.json',
-    optimer_regular: 'https://threejs.org/examples/fonts/optimer_regular.typeface.json',
-    gentilis: 'https://threejs.org/examples/fonts/gentilis_bold.typeface.json',
-    gentilis_regular: 'https://threejs.org/examples/fonts/gentilis_regular.typeface.json',
-    droid_sans: 'https://threejs.org/examples/fonts/droid/droid_sans_bold.typeface.json',
-    droid_sans_regular: 'https://threejs.org/examples/fonts/droid/droid_sans_regular.typeface.json',
-    droid_serif: 'https://threejs.org/examples/fonts/droid/droid_serif_bold.typeface.json',
-    droid_serif_regular: 'https://threejs.org/examples/fonts/droid/droid_serif_regular.typeface.json',
+    helvetiker: 'https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', // Helvetica
+    gentilis: 'https://threejs.org/examples/fonts/gentilis_bold.typeface.json', // Garamond
+    droid_sans: 'https://threejs.org/examples/fonts/droid/droid_sans_bold.typeface.json', // Inter
+    optimer: 'https://threejs.org/examples/fonts/optimer_bold.typeface.json', // Caveat
+    droid_serif: 'https://threejs.org/examples/fonts/droid/droid_serif_bold.typeface.json', // Pacifico
   };
 
   // Load font when textFont changes
@@ -315,8 +275,12 @@ function ModelViewer({
         console.log('📏 Max Dimension:', maxDim);
         console.log('📏 Normalized Scale:', scale);
 
+        // Use fixedScale if provided, otherwise use calculated scale
+        const finalScale = fixedScale !== null ? fixedScale : scale;
+        console.log('📏 Final Scale (fixedScale applied):', finalScale);
+
         // 保存归一化缩放比例
-        setNormalizedScale(scale);
+        setNormalizedScale(finalScale);
         setObj(loadedObject);
       },
       (progress) => {
@@ -334,18 +298,11 @@ function ModelViewer({
     };
   }, [objUrl]);
 
-  // Apply subdivision and boolean operations
+  // Step 1: Apply subdivision only
   useEffect(() => {
     if (!obj || !originalGeometry) return;
-    
-    // If boolean subtraction is enabled, wait for font to load
-    if (booleanSubtract && !font) {
-      console.log('⏳ Waiting for font to load before applying boolean subtraction...');
-      return;
-    }
 
     console.log(`🔄 Applying subdivision level ${subdivisionLevel}...`);
-    console.log(`🔲 Boolean subtract enabled: ${booleanSubtract}`);
     const startTime = performance.now();
 
     obj.traverse((child) => {
@@ -362,6 +319,76 @@ function ModelViewer({
           }
 
           geometry.computeVertexNormals();
+          
+          // Store as base geometry for scaling
+          setBaseGeometry(geometry.clone());
+
+          const elapsed = performance.now() - startTime;
+          console.log(`⏱️ Subdivision took ${elapsed.toFixed(2)}ms`);
+        } catch (error) {
+          console.error('❌ Subdivision failed:', error);
+        }
+      }
+    });
+  }, [obj, originalGeometry, subdivisionLevel]);
+
+  // Step 2: Apply X/Y/Z scaling (before inscription)
+  useEffect(() => {
+    if (!obj || !baseGeometry) return;
+
+    console.log(`📏 Applying scales: X=${scaleX}, Y=${scaleY}, Z=${scaleZ}`);
+
+    obj.traverse((child) => {
+      if (child.isMesh) {
+        try {
+          // Clone base geometry
+          const geometry = baseGeometry.clone();
+          const positions = geometry.attributes.position;
+
+          // Apply scaling to each vertex
+          for (let i = 0; i < positions.count; i++) {
+            const x = positions.getX(i);
+            const y = positions.getY(i);
+            const z = positions.getZ(i);
+
+            positions.setXYZ(i, x * scaleX, y * scaleY, z * scaleZ);
+          }
+
+          positions.needsUpdate = true;
+          
+          // Recompute normals after scaling
+          geometry.deleteAttribute('normal');
+          geometry.computeVertexNormals();
+
+          // Store as scaled geometry for inscription
+          setScaledGeometry(geometry.clone());
+
+          console.log('✅ Applied X/Y/Z scaling to geometry');
+        } catch (error) {
+          console.error('❌ Scaling failed:', error);
+        }
+      }
+    });
+  }, [obj, baseGeometry, scaleX, scaleY, scaleZ]);
+
+  // Step 3: Apply boolean subtraction (inscription) after scaling
+  useEffect(() => {
+    if (!obj || !scaledGeometry) return;
+    
+    // If boolean subtraction is enabled, wait for font to load
+    if (booleanSubtract && !font) {
+      console.log('⏳ Waiting for font to load before applying boolean subtraction...');
+      return;
+    }
+
+    console.log(`🔲 Boolean subtract enabled: ${booleanSubtract}`);
+    const startTime = performance.now();
+
+    obj.traverse((child) => {
+      if (child.isMesh) {
+        try {
+          // Start with scaled geometry
+          let geometry = scaledGeometry.clone();
 
           // Apply boolean subtraction if enabled
           if (booleanSubtract) {
@@ -390,8 +417,8 @@ function ModelViewer({
             setTextMeshes([]); // Clear text meshes when disabled
           }
           
-          // Store this as base geometry for twist
-          setBaseGeometry(geometry.clone());
+          // Store as inscribed geometry for twist
+          setInscribedGeometry(geometry.clone());
           
           // Replace geometry
           child.geometry.dispose();
@@ -402,75 +429,31 @@ function ModelViewer({
           child.material.side = THREE.DoubleSide;
           child.material.needsUpdate = true;
 
-          // Notify parent with geometry AFTER subdivision and boolean operations
-          // (This will be overridden by twist effect if twist is applied)
+          // Notify parent with geometry (will be overridden by twist if applied)
           if (onGeometryReadyRef.current) {
             onGeometryReadyRef.current(geometry);
           }
 
           const elapsed = performance.now() - startTime;
-          console.log(`⏱️ Processing took ${elapsed.toFixed(2)}ms`);
+          console.log(`⏱️ Boolean subtraction took ${elapsed.toFixed(2)}ms`);
         } catch (error) {
           console.error('❌ Processing failed:', error);
         }
       }
     });
-  }, [obj, originalGeometry, subdivisionLevel, booleanSubtract, subtractText, font, textScale, textSpacing, textOffsetX, textOffsetY, textDepth, textRotation, textFont]);
+  }, [obj, scaledGeometry, booleanSubtract, subtractText, font, textScale, textSpacing, textOffsetX, textOffsetY, textDepth, textRotation, textFont]);
 
-  // Apply X/Y/Z scaling to geometry (before twist)
+  // Step 4: Apply twist effect
   useEffect(() => {
-    if (!obj || !baseGeometry) return;
-
-    console.log(`📏 Applying scales: X=${scaleX}, Y=${scaleY}, Z=${scaleZ}`);
-
-    obj.traverse((child) => {
-      if (child.isMesh) {
-        try {
-          // Clone base geometry
-          const geometry = baseGeometry.clone();
-          const positions = geometry.attributes.position;
-
-          // Apply scaling to each vertex
-          for (let i = 0; i < positions.count; i++) {
-            const x = positions.getX(i);
-            const y = positions.getY(i);
-            const z = positions.getZ(i);
-
-            positions.setXYZ(i, x * scaleX, y * scaleY, z * scaleZ);
-          }
-
-          positions.needsUpdate = true;
-          
-          // Recompute normals after scaling
-          geometry.deleteAttribute('normal');
-          geometry.computeVertexNormals();
-
-          // Store as scaled geometry for twist
-          setScaledGeometry(geometry.clone());
-          
-          // Replace geometry (will be overridden by twist if twist is applied)
-          child.geometry.dispose();
-          child.geometry = geometry;
-
-          console.log('✅ Applied X/Y/Z scaling to geometry');
-        } catch (error) {
-          console.error('❌ Scaling failed:', error);
-        }
-      }
-    });
-  }, [obj, baseGeometry, scaleX, scaleY, scaleZ]);
-
-  // Apply twist effect when twist parameter changes
-  useEffect(() => {
-    if (!obj || !scaledGeometry) return;
+    if (!obj || !inscribedGeometry) return;
 
     console.log(`🌀 Applying twist: ${twist}°`);
 
     obj.traverse((child) => {
       if (child.isMesh) {
         try {
-          // Clone scaled geometry (after scaling, before twist)
-          const geometry = scaledGeometry.clone();
+          // Clone inscribed geometry (after inscription, before twist)
+          const geometry = inscribedGeometry.clone();
           const positions = geometry.attributes.position;
           
           // Calculate bounding box to get X range (horizontal axis)
@@ -559,7 +542,7 @@ function ModelViewer({
         }
       }
     });
-  }, [obj, scaledGeometry, twist]);
+  }, [obj, inscribedGeometry, twist]);
 
   // Apply normalized scale only (X/Y/Z scales already applied to geometry)
   useEffect(() => {

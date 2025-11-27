@@ -2,11 +2,16 @@ import React, { useState, useRef, useEffect } from 'react';
 import { Canvas, useThree } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
 import { EffectComposer, N8AO, BrightnessContrast, ToneMapping } from '@react-three/postprocessing';
+import * as THREE from 'three';
+import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
 import ModelViewer from './ModelViewer';
 import CatmullClarkCube from './CatmullClarkCube';
 import RandomGraphMesh from './RandomGraphMesh';
 import { exportAndUploadGeometry, uploadToGoogleDrive } from './utils/objExporter';
 import './App.css';
+
+// Shared scale constant for Morpheus model and its accessories (clip)
+const MORPHEUS_SCALE = 0.018;
 
 // Component to update camera position based on twist
 function CameraController({ twist }) {
@@ -33,6 +38,63 @@ function CameraController({ twist }) {
   }, [twist, camera]);
   
   return null;
+}
+
+// Component to load and display the clip mesh
+function ClipMesh({ visible }) {
+  const [clipObj, setClipObj] = useState(null);
+  
+  useEffect(() => {
+    if (!visible) {
+      setClipObj(null);
+      return;
+    }
+    
+    const loader = new OBJLoader();
+    
+    loader.load('./clip.obj', (obj) => {
+      obj.traverse((child) => {
+        if (child.isMesh) {
+          child.material = new THREE.MeshStandardMaterial({
+            color: 0xd0d0d0,
+            metalness: 0.1,
+            roughness: 0.8,
+          });
+          child.material.side = THREE.DoubleSide;
+        }
+      });
+      
+      // Get clip's bounding box and center it
+      const clipBox = new THREE.Box3().setFromObject(obj);
+      const clipCenter = clipBox.getCenter(new THREE.Vector3());
+      const clipSize = clipBox.getSize(new THREE.Vector3());
+      
+      console.log('📎 Clip original bounding box:', { center: clipCenter, size: clipSize });
+      
+      // Center the clip at origin
+      obj.position.set(-clipCenter.x, -clipCenter.y, -clipCenter.z);
+      
+      // DON'T scale the clip - keep it at original size
+      // The Botai mesh will apply its own normalizedScale via the group
+      // We need to match that scale instead
+      
+      setClipObj(obj);
+    });
+  }, [visible]);
+  
+  if (!visible || !clipObj) return null;
+  
+  // Use the same scale as Morpheus model
+  // Position offset in world coordinates (after scaling)
+  const yOffset = -0.2;
+  
+  return (
+    <group position={[0, yOffset, 0]} rotation={[-Math.PI, 0, 0]}>
+      <group scale={[MORPHEUS_SCALE, MORPHEUS_SCALE, MORPHEUS_SCALE]}>
+        <primitive object={clipObj} />
+      </group>
+    </group>
+  );
 }
 
 // 生成随机 GUID
@@ -68,13 +130,14 @@ function App() {
   const [subtractText, setSubtractText] = useState('Botai.'); // Inscription text
   const [localSubtractText, setLocalSubtractText] = useState('Botai.'); // Local input state
   const [textFont, setTextFont] = useState('helvetiker'); // Font selection
-  const [textScale, setTextScale] = useState(0.09); // Text scale (0.1 to 0.5)
-  const [textSpacing, setTextSpacing] = useState(0.3); // Text spacing multiplier (0.5 to 2.0)
-  const [textOffsetX, setTextOffsetX] = useState(-0.3); // Text X offset (-1.0 to 1.0)
-  const [textOffsetY, setTextOffsetY] = useState(-0.4); // Text Y offset (-1.0 to 1.0)
-  const [textDepth, setTextDepth] = useState(-0.32); // Text depth - Y-axis offset (-1.0 to 1.0)
+  const [textScale, setTextScale] = useState(0.10); // Text scale: 0.05 (Small), 0.10 (Medium), 0.15 (Large)
+  const [textSpacing, setTextSpacing] = useState(0.3); // Text spacing (unused now)
+  const [textOffsetX, setTextOffsetX] = useState(-0.35); // Text X offset (-1.0 to 1.0)
+  const [textOffsetY, setTextOffsetY] = useState(-0.38); // Text Y offset (-1.0 to 1.0)
+  const [textDepth, setTextDepth] = useState(-0.05); // Text depth: -0.05 (Deep), 0.25 (Shallow)
   const [textRotation, setTextRotation] = useState(24); // Text rotation in degrees (0 to 360)
   const [showText, setShowText] = useState(false); // Toggle inscription preview (off by default)
+  const [showClip, setShowClip] = useState(false); // Show clip for Botai style
   const [isOrdering, setIsOrdering] = useState(false);
   const [objFile, setObjFile] = useState('./Morpheus.obj');
   const [email, setEmail] = useState(''); // 用户邮箱
@@ -96,6 +159,11 @@ function App() {
   const fileInputRef = useRef(null);
 
   const price = calculatePrice(scaleX, scaleY, scaleZ);
+
+  // Update showClip based on twist value - only show when exactly 90 (Botai style)
+  useEffect(() => {
+    setShowClip(twist === 90 && objFile && objFile.includes('Morpheus'));
+  }, [twist, objFile]);
 
   // 检测浏览器是否支持 WebGL（在 mount 时运行一次）
   useEffect(() => {
@@ -607,58 +675,85 @@ function App() {
                       marginTop: '4px',
                     }}
                   >
-                    <option value="helvetiker">Helvetiker Bold</option>
-                    <option value="helvetiker_regular">Helvetiker Regular</option>
-                    <option value="optimer">Optimer Bold</option>
-                    <option value="optimer_regular">Optimer Regular</option>
-                    <option value="gentilis">Gentilis Bold</option>
-                    <option value="gentilis_regular">Gentilis Regular</option>
-                    <option value="droid_sans">Droid Sans Bold</option>
-                    <option value="droid_sans_regular">Droid Sans Regular</option>
-                    <option value="droid_serif">Droid Serif Bold</option>
-                    <option value="droid_serif_regular">Droid Serif Regular</option>
+                    <option value="helvetiker">Helvetica</option>
+                    <option value="gentilis">Garamond</option>
+                    <option value="droid_sans">Inter</option>
+                    <option value="optimer">Caveat</option>
+                    <option value="droid_serif">Pacifico</option>
                   </select>
                 </div>
 
-                {/* Text Scale Slider */}
+                {/* Text Scale Buttons - Small/Medium/Large */}
                 <div className="control-group">
-                  <label>
-                    Text Scale: <span className="value">{textScale.toFixed(2)}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="0.01"
-                    max="0.6"
-                    step="0.01"
-                    value={textScale}
-                    onChange={(e) => setTextScale(parseFloat(e.target.value))}
-                    className="slider"
-                  />
-                  <div className="slider-labels">
-                    <span>0.01</span>
-                    <span>0.3</span>
-                    <span>0.6</span>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>Text Size:</label>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      className="sample-button"
+                      onClick={() => setTextScale(0.05)}
+                      style={{
+                        background: textScale === 0.05 ? '#000' : '#f5f5f5',
+                        color: textScale === 0.05 ? '#fff' : '#000',
+                        flex: 1
+                      }}
+                    >
+                      Small
+                    </button>
+                    <button
+                      type="button"
+                      className="sample-button"
+                      onClick={() => setTextScale(0.10)}
+                      style={{
+                        background: textScale === 0.10 ? '#000' : '#f5f5f5',
+                        color: textScale === 0.10 ? '#fff' : '#000',
+                        flex: 1
+                      }}
+                    >
+                      Medium
+                    </button>
+                    <button
+                      type="button"
+                      className="sample-button"
+                      onClick={() => setTextScale(0.15)}
+                      style={{
+                        background: textScale === 0.15 ? '#000' : '#f5f5f5',
+                        color: textScale === 0.15 ? '#fff' : '#000',
+                        flex: 1
+                      }}
+                    >
+                      Large
+                    </button>
                   </div>
                 </div>
 
-                {/* Text Spacing Slider */}
+                {/* Text Depth Buttons - Deep/Shallow */}
                 <div className="control-group">
-                  <label>
-                    Text Spacing: <span className="value">{textSpacing.toFixed(2)}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="0.1"
-                    max="1.0"
-                    step="0.05"
-                    value={textSpacing}
-                    onChange={(e) => setTextSpacing(parseFloat(e.target.value))}
-                    className="slider"
-                  />
-                  <div className="slider-labels">
-                    <span>0.1</span>
-                    <span>0.55</span>
-                    <span>1.0</span>
+                  <label style={{ fontSize: '12px', fontWeight: '600' }}>Text Depth:</label>
+                  <div style={{ display: 'flex', gap: '8px', marginTop: '6px' }}>
+                    <button
+                      type="button"
+                      className="sample-button"
+                      onClick={() => setTextDepth(-0.05)}
+                      style={{
+                        background: textDepth === -0.05 ? '#000' : '#f5f5f5',
+                        color: textDepth === -0.05 ? '#fff' : '#000',
+                        flex: 1
+                      }}
+                    >
+                      Deep
+                    </button>
+                    <button
+                      type="button"
+                      className="sample-button"
+                      onClick={() => setTextDepth(0.25)}
+                      style={{
+                        background: textDepth === 0.25 ? '#000' : '#f5f5f5',
+                        color: textDepth === 0.25 ? '#fff' : '#000',
+                        flex: 1
+                      }}
+                    >
+                      Shallow
+                    </button>
                   </div>
                 </div>
 
@@ -671,15 +766,15 @@ function App() {
                     type="range"
                     min="-0.5"
                     max="0.5"
-                    step="0.05"
+                    step="0.01"
                     value={textOffsetX}
                     onChange={(e) => setTextOffsetX(parseFloat(e.target.value))}
                     className="slider"
                   />
                   <div className="slider-labels">
-                    <span>-1.0</span>
+                    <span>-0.5</span>
                     <span>0</span>
-                    <span>1.0</span>
+                    <span>0.5</span>
                   </div>
                 </div>
 
@@ -692,36 +787,15 @@ function App() {
                     type="range"
                     min="-0.45"
                     max="0.45"
-                    step="0.05"
+                    step="0.01"
                     value={textOffsetY}
                     onChange={(e) => setTextOffsetY(parseFloat(e.target.value))}
                     className="slider"
                   />
                   <div className="slider-labels">
-                    <span>-1.0</span>
+                    <span>-0.45</span>
                     <span>0</span>
-                    <span>1.0</span>
-                  </div>
-                </div>
-
-                {/* Text Depth Slider */}
-                <div className="control-group">
-                  <label>
-                    Text Depth: <span className="value">{textDepth.toFixed(2)}</span>
-                  </label>
-                  <input
-                    type="range"
-                    min="-1.0"
-                    max="1.0"
-                    step="0.02"
-                    value={textDepth}
-                    onChange={(e) => setTextDepth(parseFloat(e.target.value))}
-                    className="slider"
-                  />
-                  <div className="slider-labels">
-                    <span>-1.0</span>
-                    <span>0</span>
-                    <span>1.0</span>
+                    <span>0.45</span>
                   </div>
                 </div>
 
@@ -920,25 +994,29 @@ function App() {
             
             {mode === 'original' ? (
               objFile ? (
-                <ModelViewer 
-                  objUrl={objFile} 
-                  scaleX={scaleX}
-                  scaleY={scaleY}
-                  scaleZ={scaleZ}
-                  twist={twist}
-                  booleanSubtract={debugMode || (objFile && objFile.includes('Morpheus')) ? booleanSubtract : false}
-                  subtractText={subtractText}
-                  textFont={textFont}
-                  textScale={textScale}
-                  textSpacing={textSpacing}
-                  textOffsetX={textOffsetX}
-                  textOffsetY={textOffsetY}
-                  textDepth={textDepth}
-                  textRotation={textRotation}
-                  showText={showText}
-                  subdivisionLevel={debugMode || offlineMode || objFile === './trinity.obj' ? subdivisionLevel : 0}
-                  onGeometryReady={(geometry) => setCurrentGeometry(geometry)}
-                />
+                <>
+                  <ModelViewer 
+                    objUrl={objFile} 
+                    scaleX={scaleX}
+                    scaleY={scaleY}
+                    scaleZ={scaleZ}
+                    twist={twist}
+                    booleanSubtract={debugMode || (objFile && objFile.includes('Morpheus')) ? booleanSubtract : false}
+                    subtractText={subtractText}
+                    textFont={textFont}
+                    textScale={textScale}
+                    textSpacing={textSpacing}
+                    textOffsetX={textOffsetX}
+                    textOffsetY={textOffsetY}
+                    textDepth={textDepth}
+                    textRotation={textRotation}
+                    showText={showText}
+                    subdivisionLevel={debugMode || offlineMode || objFile === './trinity.obj' ? subdivisionLevel : 0}
+                    fixedScale={objFile && objFile.includes('Morpheus') ? MORPHEUS_SCALE : null}
+                    onGeometryReady={(geometry) => setCurrentGeometry(geometry)}
+                  />
+                  <ClipMesh visible={showClip} />
+                </>
               ) : (
                 <mesh>
                   <boxGeometry args={[1, 1, 1]} />
