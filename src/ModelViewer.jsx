@@ -167,7 +167,8 @@ function ModelViewer({
   showText = true,
   subdivisionLevel = 0,
   fixedScale = null, // Optional: use fixed scale instead of auto-calculated
-  onGeometryReady = null 
+  onGeometryReady = null,
+  meshRef = null // Optional: ref to expose the mesh for raycasting
 }) {
   const groupRef = useRef();
   const [obj, setObj] = useState(null);
@@ -179,6 +180,14 @@ function ModelViewer({
   const [textMeshes, setTextMeshes] = useState([]); // Store text meshes for visualization
   const [font, setFont] = useState(null); // Loaded font
   const onGeometryReadyRef = useRef(onGeometryReady);
+
+  // Expose mesh ref to parent if provided
+  useEffect(() => {
+    if (meshRef && groupRef.current && obj) {
+      meshRef.current = groupRef.current;
+      console.log('🔗 Mesh ref assigned:', groupRef.current.type);
+    }
+  }, [meshRef, obj]);
 
   // Font URLs mapping - mapped to closest available Three.js fonts
   const fontUrls = {

@@ -7,6 +7,7 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
 import ModelViewer from './ModelViewer';
 import CatmullClarkCube from './CatmullClarkCube';
 import RandomGraphMesh from './RandomGraphMesh';
+import SurfaceInscription from './SurfaceInscription';
 import { exportAndUploadGeometry, uploadToGoogleDrive } from './utils/objExporter';
 import './App.css';
 
@@ -125,7 +126,10 @@ function App() {
   const [scaleX, setScaleX] = useState(1.0); // X scale
   const [scaleY, setScaleY] = useState(1.0); // Y scale
   const [scaleZ, setScaleZ] = useState(1.0); // Z scale
-  const [twist, setTwist] = useState(0); // 扭曲角度 (degrees)
+  const [twist, setTwist] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('test') === 'true' ? 90 : 0; // Default to Botai style in test mode
+  }); // 扭曲角度 (degrees)
   const [booleanSubtract, setBooleanSubtract] = useState(false); // Inscription toggle
   const [subtractText, setSubtractText] = useState('Botai.'); // Inscription text
   const [localSubtractText, setLocalSubtractText] = useState('Botai.'); // Local input state
@@ -141,7 +145,13 @@ function App() {
   const [isOrdering, setIsOrdering] = useState(false);
   const [objFile, setObjFile] = useState('./Morpheus.obj');
   const [email, setEmail] = useState(''); // 用户邮箱
-  const [mode, setMode] = useState('original'); // 'original', 'manifold', or 'graph'
+  const [mode, setMode] = useState('original'); // 'original', 'manifold', 'graph', or 'test'
+  
+  // Check for test parameter in URL
+  const [testMode, setTestMode] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('test') === 'true';
+  });
   const [subdivisionLevel, setSubdivisionLevel] = useState(0);
   const [subdivisionType, setSubdivisionType] = useState('loop'); // 'loop' or 'catmull'
   const [currentGeometry, setCurrentGeometry] = useState(null);
@@ -149,6 +159,18 @@ function App() {
   const [useAdvancedRendering, setUseAdvancedRendering] = useState(true); // Advanced rendering toggle
   const [useN8AO, setUseN8AO] = useState(true); // Enable N8AO ambient occlusion
   const [useToneMapping, setUseToneMapping] = useState(true); // Enable tone mapping
+
+  // Test mode: Surface inscription state
+  const [surfaceClickData, setSurfaceClickData] = useState(null);
+  const [testInscriptionText, setTestInscriptionText] = useState('Botai');
+  const [testTextScale, setTestTextScale] = useState(0.08);
+  const [testTextRotation, setTestTextRotation] = useState(0);
+  const [testTextDepth, setTestTextDepth] = useState(0.02);
+  const [showMarker, setShowMarker] = useState(true);
+  const [showTestText, setShowTestText] = useState(true);
+  const [conformToSurface, setConformToSurface] = useState(true);
+  const [showUVMap, setShowUVMap] = useState(false);
+  const modelMeshRef = useRef(null);
 
   // Check for offline parameter in URL
   const [offlineMode, setOfflineMode] = useState(() => {
@@ -463,13 +485,245 @@ function App() {
             >
               Webber Edge
             </button>
+            <button
+              type="button"
+              className="sample-button"
+              onClick={() => { setObjFile('./Morpheus.obj'); setMode('test'); setTwist(90); }}
+              style={{
+                  background: mode === 'test' ? '#000' : '#f5f5f5',
+                  color: mode === 'test' ? '#fff' : '#000',
+                  flex: '1 1 45%',
+                  border: mode === 'test' ? '1px solid #000' : '1px solid #e0e0e0'
+                }}
+              >
+                Test Mode
+              </button>
           </div>
           {mode === 'original' && objFile && <p className="file-status">✓ {objFile.split('/').pop()}</p>}
+          {mode === 'test' && <p className="file-status">Test Mode Active</p>}
         </div>
 
         {/* High Resolution Toggle - Removed as we always use high res now */}
         
-        {mode === 'original' ? (
+        {/* TEST MODE UI */}
+        {mode === 'test' ? (
+          <>
+            {/* Style Toggle: Flat / Botai */}
+            <div className="control-group" style={{ marginTop: '16px' }}>
+              <label style={{ fontSize: '12px', fontWeight: '600' }}>Style:</label>
+              <div style={{ display: 'flex', gap: '8px', marginTop: '6px', flexWrap: 'wrap' }}>
+                <button
+                  type="button"
+                  className="sample-button"
+                  onClick={() => setTwist(0)}
+                  style={{
+                    background: twist === 0 ? '#000' : '#f5f5f5',
+                    color: twist === 0 ? '#fff' : '#000',
+                    flex: '1 1 45%'
+                  }}
+                >
+                  Flat
+                </button>
+                <button
+                  type="button"
+                  className="sample-button"
+                  onClick={() => setTwist(90)}
+                  style={{
+                    background: twist === 90 ? '#000' : '#f5f5f5',
+                    color: twist === 90 ? '#fff' : '#000',
+                    flex: '1 1 45%'
+                  }}
+                >
+                  Botai
+                </button>
+              </div>
+            </div>
+
+            {/* Twist Slider */}
+            <div className="control-group">
+              <label>
+                Twist: <span className="value">{twist}°</span>
+              </label>
+              <input
+                type="range"
+                min="-180"
+                max="180"
+                step="1"
+                value={twist}
+                onChange={(e) => setTwist(parseInt(e.target.value))}
+                className="slider"
+              />
+              <div className="slider-labels">
+                <span>-180°</span>
+                <span>0°</span>
+                <span>180°</span>
+              </div>
+            </div>
+
+            {/* Surface Inscription Controls */}
+            <div className="control-group" style={{ marginTop: '16px', padding: '12px', background: '#fafafa', border: '1px solid #e0e0e0' }}>
+              <p style={{ fontSize: '11px', color: '#333', margin: '0 0 10px 0' }}>
+                <strong>Surface Inscription</strong><br/>
+                Click on the mesh or hold 'A' + move mouse.
+              </p>
+              
+              {/* Inscription Text Input */}
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ fontSize: '11px', fontWeight: '600', color: '#333' }}>Text:</label>
+                <input
+                  type="text"
+                  value={testInscriptionText}
+                  onChange={(e) => setTestInscriptionText(e.target.value)}
+                  placeholder="Enter text"
+                  maxLength="20"
+                  style={{
+                    width: '100%',
+                    padding: '6px',
+                    fontSize: '12px',
+                    border: '1px solid #e0e0e0',
+                    marginTop: '4px',
+                  }}
+                />
+              </div>
+
+              {/* Text Scale Slider */}
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ fontSize: '11px', fontWeight: '600', color: '#333' }}>
+                  Scale: <span style={{ fontWeight: '600' }}>{testTextScale.toFixed(2)}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0.02"
+                  max="0.2"
+                  step="0.01"
+                  value={testTextScale}
+                  onChange={(e) => setTestTextScale(parseFloat(e.target.value))}
+                  className="slider"
+                  style={{ marginTop: '4px' }}
+                />
+              </div>
+
+              {/* Text Rotation Slider */}
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ fontSize: '11px', fontWeight: '600', color: '#333' }}>
+                  Rotation: <span style={{ fontWeight: '600' }}>{testTextRotation}°</span>
+                </label>
+                <input
+                  type="range"
+                  min="0"
+                  max="360"
+                  step="5"
+                  value={testTextRotation}
+                  onChange={(e) => setTestTextRotation(parseInt(e.target.value))}
+                  className="slider"
+                  style={{ marginTop: '4px' }}
+                />
+              </div>
+
+              {/* Text Depth Slider */}
+              <div style={{ marginBottom: '8px' }}>
+                <label style={{ fontSize: '11px', fontWeight: '600', color: '#333' }}>
+                  Depth: <span style={{ fontWeight: '600' }}>{testTextDepth.toFixed(3)}</span>
+                </label>
+                <input
+                  type="range"
+                  min="0.005"
+                  max="0.05"
+                  step="0.005"
+                  value={testTextDepth}
+                  onChange={(e) => setTestTextDepth(parseFloat(e.target.value))}
+                  className="slider"
+                  style={{ marginTop: '4px' }}
+                />
+              </div>
+
+              {/* Click Point Info */}
+              {surfaceClickData && (
+                <div style={{ marginTop: '10px', padding: '8px', background: '#f5f5f5', border: '1px solid #e0e0e0' }}>
+                  <p style={{ fontSize: '10px', color: '#333', margin: 0 }}>
+                    <strong>Selected Point:</strong><br/>
+                    x: {surfaceClickData.point.x.toFixed(3)}<br/>
+                    y: {surfaceClickData.point.y.toFixed(3)}<br/>
+                    z: {surfaceClickData.point.z.toFixed(3)}
+                  </p>
+                </div>
+              )}
+
+              {/* Show Marker Toggle */}
+              <div style={{ marginTop: '10px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#333' }}>
+                  <input
+                    type="checkbox"
+                    checked={showMarker}
+                    onChange={(e) => setShowMarker(e.target.checked)}
+                    style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontWeight: '500' }}>Marker</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#333' }}>
+                  <input
+                    type="checkbox"
+                    checked={showTestText}
+                    onChange={(e) => setShowTestText(e.target.checked)}
+                    style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontWeight: '500' }}>Text</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#333' }}>
+                  <input
+                    type="checkbox"
+                    checked={conformToSurface}
+                    onChange={(e) => setConformToSurface(e.target.checked)}
+                    style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontWeight: '500' }}>Conform</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#333' }}>
+                  <input
+                    type="checkbox"
+                    checked={showUVMap}
+                    onChange={(e) => setShowUVMap(e.target.checked)}
+                    style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                  />
+                  <span style={{ fontWeight: '500' }}>UV Map</span>
+                </label>
+              </div>
+
+              {/* Clear Selection Button */}
+              {surfaceClickData && (
+                <button
+                  type="button"
+                  className="sample-button"
+                  onClick={() => setSurfaceClickData(null)}
+                  style={{
+                    width: '100%',
+                    marginTop: '8px',
+                    background: '#333',
+                    color: 'white',
+                    fontSize: '11px',
+                    padding: '6px',
+                    border: 'none'
+                  }}
+                >
+                  Clear Selection
+                </button>
+              )}
+            </div>
+
+            {/* Advanced Rendering Toggle */}
+            <div className="control-group" style={{ marginTop: '20px' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={useAdvancedRendering}
+                  onChange={(e) => setUseAdvancedRendering(e.target.checked)}
+                  style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+                />
+                <span style={{ fontSize: '12px', fontWeight: '600' }}>Advanced Rendering</span>
+              </label>
+            </div>
+          </>
+        ) : mode === 'original' ? (
           <>
             {/* Subdivision Level - Only show for Trinity or in debug mode or offline mode */}
             {(debugMode || offlineMode || objFile === './trinity.obj') && (
@@ -992,16 +1246,16 @@ function App() {
             <directionalLight position={[10, 10, 5]} intensity={1} />
             <directionalLight position={[-10, -10, -5]} intensity={0.5} />
             
-            {mode === 'original' ? (
+            {mode === 'original' || mode === 'test' ? (
               objFile ? (
                 <>
                   <ModelViewer 
                     objUrl={objFile} 
-                    scaleX={scaleX}
-                    scaleY={scaleY}
-                    scaleZ={scaleZ}
+                    scaleX={mode === 'test' ? 1.0 : scaleX}
+                    scaleY={mode === 'test' ? 1.0 : scaleY}
+                    scaleZ={mode === 'test' ? 1.0 : scaleZ}
                     twist={twist}
-                    booleanSubtract={debugMode || (objFile && objFile.includes('Morpheus')) ? booleanSubtract : false}
+                    booleanSubtract={mode === 'test' ? false : (debugMode || (objFile && objFile.includes('Morpheus')) ? booleanSubtract : false)}
                     subtractText={subtractText}
                     textFont={textFont}
                     textScale={textScale}
@@ -1014,8 +1268,27 @@ function App() {
                     subdivisionLevel={debugMode || offlineMode || objFile === './trinity.obj' ? subdivisionLevel : 0}
                     fixedScale={objFile && objFile.includes('Morpheus') ? MORPHEUS_SCALE : null}
                     onGeometryReady={(geometry) => setCurrentGeometry(geometry)}
+                    meshRef={mode === 'test' ? modelMeshRef : null}
                   />
                   <ClipMesh visible={showClip} />
+                  
+                  {/* Surface Inscription for Test Mode */}
+                  {mode === 'test' && (
+                    <SurfaceInscription
+                      meshRef={modelMeshRef}
+                      enabled={true}
+                      inscriptionText={testInscriptionText}
+                      textScale={testTextScale}
+                      textRotation={testTextRotation}
+                      textDepth={testTextDepth}
+                      clickData={surfaceClickData}
+                      showMarker={showMarker}
+                      showText={showTestText}
+                      conformToSurface={conformToSurface}
+                      showUVMap={showUVMap}
+                      onInscriptionPlaced={(data) => setSurfaceClickData(data)}
+                    />
+                  )}
                 </>
               ) : (
                 <mesh>
