@@ -3,6 +3,76 @@ import { TextGeometry } from 'three/examples/jsm/geometries/TextGeometry';
 import { SUBTRACTION, Brush, Evaluator } from 'three-bvh-csg';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 
+/**
+ * Generic function to subtract one geometry from another using CSG.
+ * Both geometries should be in the same coordinate space.
+ * 
+ * @param {THREE.BufferGeometry} baseGeometry - The geometry to subtract from.
+ * @param {THREE.BufferGeometry} subGeometry - The geometry to subtract.
+ * @returns {THREE.BufferGeometry} The resulting geometry after subtraction.
+ */
+export function subtractGeometry(baseGeometry, subGeometry) {
+  if (!baseGeometry || !subGeometry) {
+    console.error('⚠️ subtractGeometry: Missing geometry');
+    return baseGeometry;
+  }
+
+  console.log('🔪 Starting geometry subtraction...');
+
+  // Ensure geometries have necessary attributes for CSG
+  const ensureAttributes = (geom) => {
+    if (!geom.attributes.uv) {
+      const count = geom.attributes.position.count;
+      const uvs = new Float32Array(count * 2);
+      geom.setAttribute('uv', new THREE.BufferAttribute(uvs, 2));
+    }
+    
+    // Clean up attributes to ensure only standard ones exist
+    const allowedAttributes = ['position', 'normal', 'uv'];
+    for (const name in geom.attributes) {
+      if (!allowedAttributes.includes(name)) {
+        geom.deleteAttribute(name);
+      }
+    }
+  };
+
+  const baseClone = baseGeometry.clone();
+  const subClone = subGeometry.clone();
+  
+  ensureAttributes(baseClone);
+  ensureAttributes(subClone);
+
+  // Create brushes
+  const baseBrush = new Brush(baseClone);
+  baseBrush.updateMatrixWorld();
+
+  const subBrush = new Brush(subClone);
+  subBrush.updateMatrixWorld();
+
+  console.log('✅ Brushes created');
+
+  // Perform subtraction
+  const evaluator = new Evaluator();
+  
+  let resultBrush;
+  try {
+    resultBrush = evaluator.evaluate(baseBrush, subBrush, SUBTRACTION);
+  } catch (error) {
+    console.error('❌ CSG Evaluation failed:', error);
+    return baseGeometry;
+  }
+
+  console.log('✅ Subtraction complete');
+
+  // Clean up and optimize result
+  let resultGeometry = resultBrush.geometry;
+  resultGeometry = mergeVertices(resultGeometry, 0.0001);
+  resultGeometry.deleteAttribute('normal');
+  resultGeometry.computeVertexNormals();
+
+  return resultGeometry;
+}
+
 // Apply boolean subtraction with text meshes using three-bvh-csg
 export function applyBooleanSubtraction(geometry, text, font, textScale, textSpacing, textOffsetX, textOffsetY, textDepth, textRotation, setTextMeshesCallback) {
   if (!text || text.length === 0) {

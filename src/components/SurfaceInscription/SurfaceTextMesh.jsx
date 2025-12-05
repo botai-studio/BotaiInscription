@@ -18,7 +18,8 @@ export default function SurfaceTextMesh({
   textRotation = 0,
   textDepth = 0.02,
   targetMesh = null,
-  conformToSurface = true
+  conformToSurface = true,
+  onGeometryReady = null // Callback when geometry is ready for CSG
 }) {
   const [geometry, setGeometry] = useState(null);
   const [font, setFont] = useState(null);
@@ -344,6 +345,12 @@ export default function SurfaceTextMesh({
     bufferGeom.computeVertexNormals();
     
     setGeometry(bufferGeom);
+    
+    // Notify parent that geometry is ready
+    if (onGeometryReady) {
+      onGeometryReady(bufferGeom);
+    }
+    
     console.log(`✅ SurfaceTextMesh built: ${vertices.length / 3} vertices, ${indices.length / 3} triangles`);
     
   }, [text, textScale, textRotation, textDepth, position, basis, font, targetMesh, conformToSurface]);

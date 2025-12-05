@@ -3,7 +3,7 @@ import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader';
 import * as THREE from 'three';
 import { LoopSubdivision } from 'three-subdivide';
-import { applyBooleanSubtraction, applyInscriptionSubtraction } from './csgUtils';
+import { applyBooleanSubtraction, subtractGeometry } from './csgUtils';
 
 function ModelViewer({ 
   objUrl, 
@@ -27,6 +27,7 @@ function ModelViewer({
   meshRef = null, // Optional: ref to expose the mesh for raycasting
   // Test mode inscription props
   testModeInscriptions = null, // Array of inscription objects with clickData
+  textMeshGeometries = null, // Object mapping inscription id to geometry
   applyInscriptions = false, // Trigger to apply boolean subtraction
   onInscriptionsApplied = null // Callback when inscriptions are applied
 }) {
@@ -37,6 +38,7 @@ function ModelViewer({
   const [baseGeometry, setBaseGeometry] = useState(null); // Geometry after subdivision
   const [scaledGeometry, setScaledGeometry] = useState(null); // Geometry after X/Y/Z scale
   const [inscribedGeometry, setInscribedGeometry] = useState(null); // Geometry after boolean subtraction
+  const [twistedGeometry, setTwistedGeometry] = useState(null); // Geometry after twist (clean, no inscriptions)
   const [textMeshes, setTextMeshes] = useState([]); // Store text meshes for visualization
   const [font, setFont] = useState(null); // Loaded font
   const onGeometryReadyRef = useRef(onGeometryReady);
@@ -300,27 +302,42 @@ function ModelViewer({
   }, [obj, scaledGeometry, booleanSubtract, subtractText, font, textScale, textSpacing, textOffsetX, textOffsetY, textDepth, textRotation, textFont]);
 
   // Step 3.5: Apply test mode inscription boolean subtraction
+  // Simple approach: use the pre-generated text mesh geometries from SurfaceTextMesh
+  // The text meshes are conformed to the TWISTED mesh, so we subtract from the clean twisted geometry
   useEffect(() => {
-    if (!applyInscriptions || !obj || !inscribedGeometry || !font) return;
-    if (!testModeInscriptions || testModeInscriptions.length === 0) {
+    if (!applyInscriptions || !obj || !twistedGeometry) return;
+    if (!textMeshGeometries || Object.keys(textMeshGeometries).length === 0) {
+      console.log('⚠️ No text mesh geometries available');
       if (onInscriptionsApplied) onInscriptionsApplied();
       return;
     }
 
-    console.log('🔲 Applying test mode inscriptions...');
+    console.log('🔲 Applying test mode inscriptions (fresh from twisted mesh)...');
     const startTime = performance.now();
 
     obj.traverse((child) => {
       if (child.isMesh) {
         try {
-          // Start with current inscribed geometry
-          let geometry = inscribedGeometry.clone();
-
-          // Apply inscription boolean subtraction
-          geometry = applyInscriptionSubtraction(geometry, testModeInscriptions, normalizedScale, font);
-
-          // Update inscribed geometry state
-          setInscribedGeometry(geometry.clone());
+          // Start fresh from the clean twisted geometry (no previous inscriptions)
+          // This geometry is in Local Space (huge)
+          let geometry = twistedGeometry.clone();
+          
+          // Apply the mesh's world transform to the geometry to get it into World Space
+          child.updateMatrixWorld(true);
+          geometry.applyMatrix4(child.matrixWorld);
+          
+          // Subtract each text mesh geometry (which are already in World Space)
+          for (const inscriptionId in textMeshGeometries) {
+            const textGeo = textMeshGeometries[inscriptionId];
+            if (textGeo) {
+              console.log(`🔪 Subtracting text mesh for inscription #${inscriptionId}`);
+              geometry = subtractGeometry(geometry, textGeo);
+            }
+          }
+          
+          // Apply inverse transform to get back to Local Space
+          const inverseMatrix = child.matrixWorld.clone().invert();
+          geometry.applyMatrix4(inverseMatrix);
 
           // Replace geometry on mesh
           child.geometry.dispose();
@@ -348,7 +365,7 @@ function ModelViewer({
     if (onInscriptionsApplied) {
       onInscriptionsApplied();
     }
-  }, [applyInscriptions, obj, inscribedGeometry, testModeInscriptions, normalizedScale, font, onInscriptionsApplied]);
+  }, [applyInscriptions, obj, textMeshGeometries, onInscriptionsApplied]);
 
   // Step 4: Apply twist effect
   useEffect(() => {
@@ -432,6 +449,9 @@ function ModelViewer({
             console.log('✅ Recomputed normals after twist');
           }
 
+          // Store the clean twisted geometry (for use when applying inscriptions)
+          setTwistedGeometry(geometry.clone());
+          
           // Replace geometry
           child.geometry.dispose();
           child.geometry = geometry;

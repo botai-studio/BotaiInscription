@@ -19,7 +19,8 @@ export default function SurfaceInscription({
   showTextMesh = false,
   conformToSurface = true,
   showUVMap = false,
-  onInscriptionPlaced = null
+  onInscriptionPlaced = null,
+  onTextMeshGeometryReady = null // Callback when text mesh geometry is ready
 }) {
   const handleSurfaceClick = (data) => {
     console.log('📍 Inscription placement point updated');
@@ -92,6 +93,7 @@ export default function SurfaceInscription({
           textDepth={textDepth}
           targetMesh={meshRef}
           conformToSurface={conformToSurface}
+          onGeometryReady={onTextMeshGeometryReady}
         />
       )}
     </>
