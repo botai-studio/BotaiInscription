@@ -1,119 +1,19 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { Canvas, useThree } from '@react-three/fiber';
+import { Canvas } from '@react-three/fiber';
 import { OrbitControls, PerspectiveCamera } from '@react-three/drei';
-import { EffectComposer, N8AO, BrightnessContrast, ToneMapping } from '@react-three/postprocessing';
-import * as THREE from 'three';
-import { OBJLoader } from 'three/examples/jsm/loaders/OBJLoader';
-import ModelViewer from './ModelViewer';
-import CatmullClarkCube from './CatmullClarkCube';
-import RandomGraphMesh from './RandomGraphMesh';
-import SurfaceInscription from './SurfaceInscription';
+import { EffectComposer, N8AO } from '@react-three/postprocessing';
+import ModelViewer from './components/ModelViewer/ModelViewer';
+import CatmullClarkCube from './components/Procedural/CatmullClarkCube';
+import RandomGraphMesh from './components/Procedural/RandomGraphMesh';
+import SurfaceInscription from './components/SurfaceInscription';
+import CameraController from './components/Scene/CameraController';
+import ClipMesh from './components/Scene/ClipMesh';
+import { generateGUID, calculatePrice } from './utils/math';
 import { exportAndUploadGeometry, uploadToGoogleDrive } from './utils/objExporter';
 import './App.css';
 
 // Shared scale constant for Morpheus model and its accessories (clip)
 const MORPHEUS_SCALE = 0.018;
-
-// Component to update camera position based on twist
-function CameraController({ twist }) {
-  const { camera } = useThree();
-  
-  useEffect(() => {
-    // Flat (twist = 0): Front view [0, 0, 5]
-    // Botai (twist = 90): Top view [0, 5, 0]
-    // Interpolate between positions based on twist angle
-    const normalizedTwist = Math.abs(twist) / 90; // 0 to 1+ range
-    const factor = Math.min(normalizedTwist, 1); // Clamp to 1
-    
-    if (twist == 90) {
-      // Stay at top view for twist > 90
-      camera.position.set(0, 3, 0);
-    } 
-    if (twist == 0) {
-      // For negative twist, stay at front view
-      camera.position.set(0, 0, 3);
-    }
-    
-    camera.lookAt(0, 0, 0);
-    camera.updateProjectionMatrix();
-  }, [twist, camera]);
-  
-  return null;
-}
-
-// Component to load and display the clip mesh
-function ClipMesh({ visible }) {
-  const [clipObj, setClipObj] = useState(null);
-  
-  useEffect(() => {
-    if (!visible) {
-      setClipObj(null);
-      return;
-    }
-    
-    const loader = new OBJLoader();
-    
-    loader.load('./clip.obj', (obj) => {
-      obj.traverse((child) => {
-        if (child.isMesh) {
-          child.material = new THREE.MeshStandardMaterial({
-            color: 0xd0d0d0,
-            metalness: 0.1,
-            roughness: 0.8,
-          });
-          child.material.side = THREE.DoubleSide;
-        }
-      });
-      
-      // Get clip's bounding box and center it
-      const clipBox = new THREE.Box3().setFromObject(obj);
-      const clipCenter = clipBox.getCenter(new THREE.Vector3());
-      const clipSize = clipBox.getSize(new THREE.Vector3());
-      
-      console.log('📎 Clip original bounding box:', { center: clipCenter, size: clipSize });
-      
-      // Center the clip at origin
-      obj.position.set(-clipCenter.x, -clipCenter.y, -clipCenter.z);
-      
-      // DON'T scale the clip - keep it at original size
-      // The Botai mesh will apply its own normalizedScale via the group
-      // We need to match that scale instead
-      
-      setClipObj(obj);
-    });
-  }, [visible]);
-  
-  if (!visible || !clipObj) return null;
-  
-  // Use the same scale as Morpheus model
-  // Position offset in world coordinates (after scaling)
-  const yOffset = -0.2;
-  
-  return (
-    <group position={[0, yOffset, 0]} rotation={[-Math.PI, 0, 0]}>
-      <group scale={[MORPHEUS_SCALE, MORPHEUS_SCALE, MORPHEUS_SCALE]}>
-        <primitive object={clipObj} />
-      </group>
-    </group>
-  );
-}
-
-// 生成随机 GUID
-const generateGUID = () => {
-  return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
-    const r = Math.random() * 16 | 0;
-    const v = c === 'x' ? r : (r & 0x3 | 0x8);
-    return v.toString(16);
-  });
-};
-
-// 计算价格 - 基于bounding box体积
-const calculatePrice = (scaleX, scaleY, scaleZ) => {
-  const basePrice = 60; // 基础价格 $60 (对应默认体积 1.0)
-  const volume = scaleX * scaleY * scaleZ; // 计算bounding box体积
-  const price = basePrice * volume; // 价格与体积成正比
-  return price.toFixed(2);
-};
 
 function App() {
   // Check for debug parameter in URL
@@ -160,17 +60,77 @@ function App() {
   const [useN8AO, setUseN8AO] = useState(true); // Enable N8AO ambient occlusion
   const [useToneMapping, setUseToneMapping] = useState(true); // Enable tone mapping
 
-  // Test mode: Surface inscription state
-  const [surfaceClickData, setSurfaceClickData] = useState(null);
-  const [testInscriptionText, setTestInscriptionText] = useState('Botai');
-  const [testTextScale, setTestTextScale] = useState(0.08);
-  const [testTextRotation, setTestTextRotation] = useState(0);
-  const [testTextDepth, setTestTextDepth] = useState(0.02);
+  // Test mode: Multiple inscriptions state
+  const [inscriptions, setInscriptions] = useState([
+    {
+      id: 1,
+      text: 'Botai',
+      scale: 0.08,
+      rotation: 0,
+      depth: 0.02,
+      clickData: null
+    }
+  ]);
+  const [selectedInscriptionId, setSelectedInscriptionId] = useState(1);
+  const [nextInscriptionId, setNextInscriptionId] = useState(2);
+  
+  // Global settings for all inscriptions
   const [showMarker, setShowMarker] = useState(true);
   const [showTestText, setShowTestText] = useState(true);
+  const [showTextMesh, setShowTextMesh] = useState(false);
   const [conformToSurface, setConformToSurface] = useState(true);
   const [showUVMap, setShowUVMap] = useState(false);
   const modelMeshRef = useRef(null);
+
+  // Helper functions for inscription management
+  const getSelectedInscription = () => inscriptions.find(i => i.id === selectedInscriptionId);
+  
+  const updateInscription = (id, updates) => {
+    setInscriptions(prev => prev.map(i => 
+      i.id === id ? { ...i, ...updates } : i
+    ));
+  };
+  
+  // Deep clone clickData to prevent shared THREE.Vector3 references
+  const cloneClickData = (data) => {
+    if (!data) return null;
+    return {
+      point: data.point.clone(),
+      normal: data.normal.clone(),
+      tangent: data.tangent.clone(),
+      bitangent: data.bitangent.clone(),
+      face: data.face,
+      uv: data.uv,
+      object: data.object,
+      distance: data.distance
+    };
+  };
+  
+  const addInscription = () => {
+    const newInscription = {
+      id: nextInscriptionId,
+      text: 'Text',
+      scale: 0.08,
+      rotation: 0,
+      depth: 0.02,
+      clickData: null
+    };
+    setInscriptions(prev => [...prev, newInscription]);
+    setSelectedInscriptionId(nextInscriptionId);
+    setNextInscriptionId(prev => prev + 1);
+  };
+  
+  const deleteInscription = (id) => {
+    if (inscriptions.length <= 1) return; // Keep at least one
+    setInscriptions(prev => prev.filter(i => i.id !== id));
+    if (selectedInscriptionId === id) {
+      // Select another inscription
+      const remaining = inscriptions.filter(i => i.id !== id);
+      if (remaining.length > 0) {
+        setSelectedInscriptionId(remaining[0].id);
+      }
+    }
+  };
 
   // Check for offline parameter in URL
   const [offlineMode, setOfflineMode] = useState(() => {
@@ -560,154 +520,203 @@ function App() {
               </div>
             </div>
 
-            {/* Surface Inscription Controls */}
-            <div className="control-group" style={{ marginTop: '16px', padding: '12px', background: '#fafafa', border: '1px solid #e0e0e0' }}>
+            {/* Inscription Cards Section */}
+            <div style={{ marginTop: '16px' }}>
               <p style={{ fontSize: '11px', color: '#333', margin: '0 0 10px 0' }}>
-                <strong>Surface Inscription</strong><br/>
-                Click on the mesh or hold 'A' + move mouse.
+                <strong>Inscriptions</strong> — Click on mesh or hold 'A' + move
               </p>
               
-              {/* Inscription Text Input */}
-              <div style={{ marginBottom: '8px' }}>
-                <label style={{ fontSize: '11px', fontWeight: '600', color: '#333' }}>Text:</label>
-                <input
-                  type="text"
-                  value={testInscriptionText}
-                  onChange={(e) => setTestInscriptionText(e.target.value)}
-                  placeholder="Enter text"
-                  maxLength="20"
+              {/* Inscription Cards */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+                {inscriptions.map((inscription, index) => (
+                  <div
+                    key={inscription.id}
+                    onClick={() => setSelectedInscriptionId(inscription.id)}
+                    style={{
+                      padding: '10px',
+                      border: selectedInscriptionId === inscription.id ? '2px solid #000' : '1px solid #e0e0e0',
+                      background: selectedInscriptionId === inscription.id ? '#f0f0f0' : '#fff',
+                      cursor: 'pointer',
+                      position: 'relative'
+                    }}
+                  >
+                    {/* Card Header */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '600', color: '#333' }}>
+                        #{index + 1} {inscription.clickData ? '✓' : '○'}
+                      </span>
+                      {inscriptions.length > 1 && (
+                        <button
+                          onClick={(e) => { e.stopPropagation(); deleteInscription(inscription.id); }}
+                          style={{
+                            background: 'none',
+                            border: 'none',
+                            cursor: 'pointer',
+                            fontSize: '14px',
+                            color: '#999',
+                            padding: '0 4px'
+                          }}
+                        >
+                          ×
+                        </button>
+                      )}
+                    </div>
+                    
+                    {/* Text Input */}
+                    <div style={{ marginBottom: '6px' }}>
+                      <input
+                        type="text"
+                        value={inscription.text}
+                        onChange={(e) => updateInscription(inscription.id, { text: e.target.value })}
+                        onClick={(e) => e.stopPropagation()}
+                        placeholder="Enter text"
+                        maxLength="20"
+                        style={{
+                          width: '100%',
+                          padding: '4px 6px',
+                          fontSize: '11px',
+                          border: '1px solid #ddd',
+                          boxSizing: 'border-box'
+                        }}
+                      />
+                    </div>
+                    
+                    {/* Scale Slider */}
+                    <div style={{ marginBottom: '4px' }}>
+                      <label style={{ fontSize: '10px', color: '#666' }}>
+                        Scale: {inscription.scale.toFixed(2)}
+                      </label>
+                      <input
+                        type="range"
+                        min="0.02"
+                        max="0.2"
+                        step="0.01"
+                        value={inscription.scale}
+                        onChange={(e) => updateInscription(inscription.id, { scale: parseFloat(e.target.value) })}
+                        onClick={(e) => e.stopPropagation()}
+                        className="slider"
+                        style={{ marginTop: '2px' }}
+                      />
+                    </div>
+                    
+                    {/* Rotation Slider */}
+                    <div style={{ marginBottom: '4px' }}>
+                      <label style={{ fontSize: '10px', color: '#666' }}>
+                        Rotation: {inscription.rotation}°
+                      </label>
+                      <input
+                        type="range"
+                        min="0"
+                        max="360"
+                        step="5"
+                        value={inscription.rotation}
+                        onChange={(e) => updateInscription(inscription.id, { rotation: parseInt(e.target.value) })}
+                        onClick={(e) => e.stopPropagation()}
+                        className="slider"
+                        style={{ marginTop: '2px' }}
+                      />
+                    </div>
+                    
+                    {/* Depth Slider */}
+                    <div>
+                      <label style={{ fontSize: '10px', color: '#666' }}>
+                        Depth: {inscription.depth.toFixed(3)}
+                      </label>
+                      <input
+                        type="range"
+                        min="0.005"
+                        max="0.05"
+                        step="0.005"
+                        value={inscription.depth}
+                        onChange={(e) => updateInscription(inscription.id, { depth: parseFloat(e.target.value) })}
+                        onClick={(e) => e.stopPropagation()}
+                        className="slider"
+                        style={{ marginTop: '2px' }}
+                      />
+                    </div>
+                    
+                    {/* Position Info (if placed) */}
+                    {inscription.clickData && (
+                      <div style={{ marginTop: '6px', fontSize: '9px', color: '#888' }}>
+                        Position: ({inscription.clickData.point.x.toFixed(2)}, {inscription.clickData.point.y.toFixed(2)}, {inscription.clickData.point.z.toFixed(2)})
+                      </div>
+                    )}
+                  </div>
+                ))}
+                
+                {/* Add New Inscription Card */}
+                <div
+                  onClick={addInscription}
                   style={{
-                    width: '100%',
-                    padding: '6px',
-                    fontSize: '12px',
-                    border: '1px solid #e0e0e0',
-                    marginTop: '4px',
+                    padding: '20px',
+                    border: '2px dashed #ccc',
+                    background: '#fafafa',
+                    cursor: 'pointer',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    transition: 'border-color 0.2s'
                   }}
-                />
-              </div>
-
-              {/* Text Scale Slider */}
-              <div style={{ marginBottom: '8px' }}>
-                <label style={{ fontSize: '11px', fontWeight: '600', color: '#333' }}>
-                  Scale: <span style={{ fontWeight: '600' }}>{testTextScale.toFixed(2)}</span>
-                </label>
-                <input
-                  type="range"
-                  min="0.02"
-                  max="0.2"
-                  step="0.01"
-                  value={testTextScale}
-                  onChange={(e) => setTestTextScale(parseFloat(e.target.value))}
-                  className="slider"
-                  style={{ marginTop: '4px' }}
-                />
-              </div>
-
-              {/* Text Rotation Slider */}
-              <div style={{ marginBottom: '8px' }}>
-                <label style={{ fontSize: '11px', fontWeight: '600', color: '#333' }}>
-                  Rotation: <span style={{ fontWeight: '600' }}>{testTextRotation}°</span>
-                </label>
-                <input
-                  type="range"
-                  min="0"
-                  max="360"
-                  step="5"
-                  value={testTextRotation}
-                  onChange={(e) => setTestTextRotation(parseInt(e.target.value))}
-                  className="slider"
-                  style={{ marginTop: '4px' }}
-                />
-              </div>
-
-              {/* Text Depth Slider */}
-              <div style={{ marginBottom: '8px' }}>
-                <label style={{ fontSize: '11px', fontWeight: '600', color: '#333' }}>
-                  Depth: <span style={{ fontWeight: '600' }}>{testTextDepth.toFixed(3)}</span>
-                </label>
-                <input
-                  type="range"
-                  min="0.005"
-                  max="0.05"
-                  step="0.005"
-                  value={testTextDepth}
-                  onChange={(e) => setTestTextDepth(parseFloat(e.target.value))}
-                  className="slider"
-                  style={{ marginTop: '4px' }}
-                />
-              </div>
-
-              {/* Click Point Info */}
-              {surfaceClickData && (
-                <div style={{ marginTop: '10px', padding: '8px', background: '#f5f5f5', border: '1px solid #e0e0e0' }}>
-                  <p style={{ fontSize: '10px', color: '#333', margin: 0 }}>
-                    <strong>Selected Point:</strong><br/>
-                    x: {surfaceClickData.point.x.toFixed(3)}<br/>
-                    y: {surfaceClickData.point.y.toFixed(3)}<br/>
-                    z: {surfaceClickData.point.z.toFixed(3)}
-                  </p>
+                  onMouseEnter={(e) => e.currentTarget.style.borderColor = '#999'}
+                  onMouseLeave={(e) => e.currentTarget.style.borderColor = '#ccc'}
+                >
+                  <span style={{ fontSize: '24px', color: '#999' }}>+</span>
                 </div>
-              )}
+              </div>
+            </div>
 
-              {/* Show Marker Toggle */}
-              <div style={{ marginTop: '10px', display: 'flex', gap: '16px', flexWrap: 'wrap' }}>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#333' }}>
+            {/* Global Settings Card */}
+            <div style={{ marginTop: '16px', padding: '10px', background: '#f5f5f5', border: '1px solid #e0e0e0' }}>
+              <p style={{ fontSize: '11px', fontWeight: '600', color: '#333', margin: '0 0 8px 0' }}>
+                Display Settings
+              </p>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: '#333' }}>
                   <input
                     type="checkbox"
                     checked={showMarker}
                     onChange={(e) => setShowMarker(e.target.checked)}
-                    style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                    style={{ width: '12px', height: '12px', cursor: 'pointer' }}
                   />
-                  <span style={{ fontWeight: '500' }}>Marker</span>
+                  <span>Marker</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#333' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: '#333' }}>
                   <input
                     type="checkbox"
                     checked={showTestText}
                     onChange={(e) => setShowTestText(e.target.checked)}
-                    style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                    style={{ width: '12px', height: '12px', cursor: 'pointer' }}
                   />
-                  <span style={{ fontWeight: '500' }}>Text</span>
+                  <span>Dots</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#333' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: '#333' }}>
+                  <input
+                    type="checkbox"
+                    checked={showTextMesh}
+                    onChange={(e) => setShowTextMesh(e.target.checked)}
+                    style={{ width: '12px', height: '12px', cursor: 'pointer' }}
+                  />
+                  <span>Text Mesh</span>
+                </label>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: '#333' }}>
                   <input
                     type="checkbox"
                     checked={conformToSurface}
                     onChange={(e) => setConformToSurface(e.target.checked)}
-                    style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                    style={{ width: '12px', height: '12px', cursor: 'pointer' }}
                   />
-                  <span style={{ fontWeight: '500' }}>Conform</span>
+                  <span>Conform</span>
                 </label>
-                <label style={{ display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer', fontSize: '11px', color: '#333' }}>
+                <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: '#333' }}>
                   <input
                     type="checkbox"
                     checked={showUVMap}
                     onChange={(e) => setShowUVMap(e.target.checked)}
-                    style={{ width: '14px', height: '14px', cursor: 'pointer' }}
+                    style={{ width: '12px', height: '12px', cursor: 'pointer' }}
                   />
-                  <span style={{ fontWeight: '500' }}>UV Map</span>
+                  <span>UV Map</span>
                 </label>
               </div>
-
-              {/* Clear Selection Button */}
-              {surfaceClickData && (
-                <button
-                  type="button"
-                  className="sample-button"
-                  onClick={() => setSurfaceClickData(null)}
-                  style={{
-                    width: '100%',
-                    marginTop: '8px',
-                    background: '#333',
-                    color: 'white',
-                    fontSize: '11px',
-                    padding: '6px',
-                    border: 'none'
-                  }}
-                >
-                  Clear Selection
-                </button>
-              )}
             </div>
 
             {/* Advanced Rendering Toggle */}
@@ -1269,25 +1278,55 @@ function App() {
                     fixedScale={objFile && objFile.includes('Morpheus') ? MORPHEUS_SCALE : null}
                     onGeometryReady={(geometry) => setCurrentGeometry(geometry)}
                     meshRef={mode === 'test' ? modelMeshRef : null}
+                    testModeInscriptions={mode === 'test' ? inscriptions : null}
+                    applyInscriptions={false} // We will add a button for this later
+                    onInscriptionsApplied={() => console.log('Inscriptions applied')}
                   />
                   <ClipMesh visible={showClip} />
                   
-                  {/* Surface Inscription for Test Mode */}
+                  {/* Surface Inscription for Test Mode - Multiple Inscriptions */}
                   {mode === 'test' && (
-                    <SurfaceInscription
-                      meshRef={modelMeshRef}
-                      enabled={true}
-                      inscriptionText={testInscriptionText}
-                      textScale={testTextScale}
-                      textRotation={testTextRotation}
-                      textDepth={testTextDepth}
-                      clickData={surfaceClickData}
-                      showMarker={showMarker}
-                      showText={showTestText}
-                      conformToSurface={conformToSurface}
-                      showUVMap={showUVMap}
-                      onInscriptionPlaced={(data) => setSurfaceClickData(data)}
-                    />
+                    <>
+                      {/* Raycaster to place inscriptions */}
+                      <SurfaceInscription
+                        meshRef={modelMeshRef}
+                        enabled={true}
+                        inscriptionText={getSelectedInscription()?.text || 'Text'}
+                        textScale={getSelectedInscription()?.scale || 0.08}
+                        textRotation={getSelectedInscription()?.rotation || 0}
+                        textDepth={getSelectedInscription()?.depth || 0.02}
+                        clickData={null}
+                        showMarker={false}
+                        showText={false}
+                        conformToSurface={conformToSurface}
+                        showUVMap={false}
+                        onInscriptionPlaced={(data) => {
+                          updateInscription(selectedInscriptionId, { clickData: cloneClickData(data) });
+                        }}
+                      />
+                      
+                      {/* Render all inscriptions */}
+                      {inscriptions.map((inscription) => (
+                        inscription.clickData && (
+                          <SurfaceInscription
+                            key={inscription.id}
+                            meshRef={modelMeshRef}
+                            enabled={false}
+                            inscriptionText={inscription.text}
+                            textScale={inscription.scale}
+                            textRotation={inscription.rotation}
+                            textDepth={inscription.depth}
+                            clickData={inscription.clickData}
+                            showMarker={showMarker && selectedInscriptionId === inscription.id}
+                            showText={showTestText}
+                            showTextMesh={showTextMesh}
+                            conformToSurface={conformToSurface}
+                            showUVMap={showUVMap && selectedInscriptionId === inscription.id}
+                            onInscriptionPlaced={null}
+                          />
+                        )
+                      ))}
+                    </>
                   )}
                 </>
               ) : (

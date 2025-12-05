@@ -10,7 +10,7 @@ import './index.css';
 // );
 
 
-import { ManifoldProvider } from './ManifoldProvider';
+import { ManifoldProvider } from './components/Providers/ManifoldProvider';
 
 ReactDOM.createRoot(document.getElementById('root')).render(
   <React.StrictMode>

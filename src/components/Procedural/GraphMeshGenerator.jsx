@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useMemo } from 'react';
-import { useManifold } from './ManifoldProvider';
+import { useManifold } from '../Providers/ManifoldProvider';
 import * as THREE from 'three';
 import { LoopSubdivision } from 'three-subdivide';
 

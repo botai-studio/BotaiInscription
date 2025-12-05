@@ -1,6 +1,6 @@
 import React, { useMemo, useEffect, useState } from 'react';
 import * as THREE from 'three';
-import { useManifold } from './ManifoldProvider';
+import { useManifold } from '../Providers/ManifoldProvider';
 import { LoopSubdivision } from 'three-subdivide';
 
 // Helper: Convert Manifold mesh to Three.js BufferGeometry
