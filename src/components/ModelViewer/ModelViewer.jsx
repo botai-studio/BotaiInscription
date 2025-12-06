@@ -301,26 +301,39 @@ function ModelViewer({
     });
   }, [obj, scaledGeometry, booleanSubtract, subtractText, font, textScale, textSpacing, textOffsetX, textOffsetY, textDepth, textRotation, textFont]);
 
-  // Step 3.5: Apply test mode inscription boolean subtraction
+  // Step 3.5: Apply inscription mode boolean subtraction
   // Simple approach: use the pre-generated text mesh geometries from SurfaceTextMesh
-  // The text meshes are conformed to the TWISTED mesh, so we subtract from the clean twisted geometry
+  // For test mode (with twist): subtract from the clean twisted geometry
+  // For inscription mode (no twist): subtract from the scaled geometry directly
   useEffect(() => {
-    if (!applyInscriptions || !obj || !twistedGeometry) return;
+    if (!applyInscriptions || !obj) return;
+    
+    // Determine the base geometry to subtract from
+    // - If twist is applied (test mode), use twistedGeometry
+    // - If no twist (inscription mode), use scaledGeometry
+    const baseGeom = twist !== 0 ? twistedGeometry : scaledGeometry;
+    
+    if (!baseGeom) {
+      console.log('⚠️ Base geometry not ready yet');
+      if (onInscriptionsApplied) onInscriptionsApplied();
+      return;
+    }
+    
     if (!textMeshGeometries || Object.keys(textMeshGeometries).length === 0) {
       console.log('⚠️ No text mesh geometries available');
       if (onInscriptionsApplied) onInscriptionsApplied();
       return;
     }
 
-    console.log('🔲 Applying test mode inscriptions (fresh from twisted mesh)...');
+    console.log(`🔲 Applying inscriptions (twist=${twist}, using ${twist !== 0 ? 'twisted' : 'scaled'} geometry)...`);
     const startTime = performance.now();
 
     obj.traverse((child) => {
       if (child.isMesh) {
         try {
-          // Start fresh from the clean twisted geometry (no previous inscriptions)
+          // Start fresh from the clean base geometry (no previous inscriptions)
           // This geometry is in Local Space (huge)
-          let geometry = twistedGeometry.clone();
+          let geometry = baseGeom.clone();
           
           // Apply the mesh's world transform to the geometry to get it into World Space
           child.updateMatrixWorld(true);
@@ -354,9 +367,9 @@ function ModelViewer({
           }
 
           const elapsed = performance.now() - startTime;
-          console.log(`⏱️ Test mode inscriptions took ${elapsed.toFixed(2)}ms`);
+          console.log(`⏱️ Inscriptions applied in ${elapsed.toFixed(2)}ms`);
         } catch (error) {
-          console.error('❌ Test mode inscription failed:', error);
+          console.error('❌ Inscription subtraction failed:', error);
         }
       }
     });
@@ -365,7 +378,7 @@ function ModelViewer({
     if (onInscriptionsApplied) {
       onInscriptionsApplied();
     }
-  }, [applyInscriptions, obj, textMeshGeometries, onInscriptionsApplied]);
+  }, [applyInscriptions, obj, textMeshGeometries, onInscriptionsApplied, twist, twistedGeometry, scaledGeometry]);
 
   // Step 4: Apply twist effect
   useEffect(() => {

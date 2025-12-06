@@ -13,6 +13,7 @@ export default function SurfaceInscription({
   textScale = 0.1,
   textRotation = 0,
   textDepth = 0.02,
+  textFont = 'helvetiker',
   clickData = null,
   showMarker = true,
   showText = true,
@@ -91,6 +92,7 @@ export default function SurfaceInscription({
           textScale={textScale}
           textRotation={textRotation}
           textDepth={textDepth}
+          textFont={textFont}
           targetMesh={meshRef}
           conformToSurface={conformToSurface}
           onGeometryReady={onTextMeshGeometryReady}

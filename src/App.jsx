@@ -69,6 +69,7 @@ function App() {
       scale: 0.08,
       rotation: 0,
       depth: 0.02,
+      font: 'helvetiker',
       clickData: null
     }
   ]);
@@ -138,6 +139,7 @@ function App() {
       scale: 0.08,
       rotation: 0,
       depth: 0.02,
+      font: 'helvetiker',
       clickData: null
     };
     setInscriptions(prev => [...prev, newInscription]);
@@ -482,16 +484,16 @@ function App() {
             <directionalLight position={[10, 10, 5]} intensity={1} />
             <directionalLight position={[-10, -10, -5]} intensity={0.5} />
             
-            {mode === 'original' || mode === 'test' ? (
+            {mode === 'original' || mode === 'test' || mode === 'inscription' ? (
               objFile ? (
                 <>
                   <ModelViewer 
                     objUrl={objFile} 
-                    scaleX={mode === 'test' ? 1.0 : scaleX}
-                    scaleY={mode === 'test' ? 1.0 : scaleY}
-                    scaleZ={mode === 'test' ? 1.0 : scaleZ}
-                    twist={twist}
-                    booleanSubtract={mode === 'test' ? false : (debugMode || (objFile && objFile.includes('Morpheus')) ? booleanSubtract : false)}
+                    scaleX={mode === 'test' || mode === 'inscription' ? 1.0 : scaleX}
+                    scaleY={mode === 'test' || mode === 'inscription' ? 1.0 : scaleY}
+                    scaleZ={mode === 'test' || mode === 'inscription' ? 1.0 : scaleZ}
+                    twist={mode === 'inscription' ? 0 : twist}
+                    booleanSubtract={mode === 'test' || mode === 'inscription' ? false : (debugMode || (objFile && objFile.includes('Morpheus')) ? booleanSubtract : false)}
                     subtractText={subtractText}
                     textFont={textFont}
                     textScale={textScale}
@@ -504,16 +506,16 @@ function App() {
                     subdivisionLevel={debugMode || offlineMode || objFile === './trinity.obj' ? subdivisionLevel : 0}
                     fixedScale={objFile && objFile.includes('Morpheus') ? MORPHEUS_SCALE : null}
                     onGeometryReady={(geometry) => setCurrentGeometry(geometry)}
-                    meshRef={mode === 'test' ? modelMeshRef : null}
-                    testModeInscriptions={mode === 'test' ? inscriptions : null}
-                    textMeshGeometries={mode === 'test' ? textMeshGeometries : null}
+                    meshRef={mode === 'test' || mode === 'inscription' ? modelMeshRef : null}
+                    testModeInscriptions={mode === 'test' || mode === 'inscription' ? inscriptions : null}
+                    textMeshGeometries={mode === 'test' || mode === 'inscription' ? textMeshGeometries : null}
                     applyInscriptions={triggerApplyInscriptions}
                     onInscriptionsApplied={handleInscriptionsApplied}
                   />
                   <ClipMesh visible={showClip} />
                   
-                  {/* Surface Inscription for Test Mode - Multiple Inscriptions */}
-                  {mode === 'test' && (
+                  {/* Surface Inscription for Test Mode and Inscription Mode */}
+                  {(mode === 'test' || mode === 'inscription') && (
                     <>
                       {/* Raycaster to place inscriptions */}
                       <SurfaceInscription
@@ -523,6 +525,7 @@ function App() {
                         textScale={getSelectedInscription()?.scale || 0.08}
                         textRotation={getSelectedInscription()?.rotation || 0}
                         textDepth={getSelectedInscription()?.depth || 0.02}
+                        textFont={getSelectedInscription()?.font || 'helvetiker'}
                         clickData={null}
                         showMarker={false}
                         showText={false}
@@ -544,6 +547,7 @@ function App() {
                             textScale={inscription.scale}
                             textRotation={inscription.rotation}
                             textDepth={inscription.depth}
+                            textFont={inscription.font}
                             clickData={inscription.clickData}
                             showMarker={showMarker && selectedInscriptionId === inscription.id}
                             showText={showTestText}

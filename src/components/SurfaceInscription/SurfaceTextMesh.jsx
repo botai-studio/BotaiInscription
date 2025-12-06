@@ -17,6 +17,7 @@ export default function SurfaceTextMesh({
   textScale = 0.1, 
   textRotation = 0,
   textDepth = 0.02,
+  textFont = 'helvetiker',
   targetMesh = null,
   conformToSurface = true,
   onGeometryReady = null // Callback when geometry is ready for CSG
@@ -24,21 +25,35 @@ export default function SurfaceTextMesh({
   const [geometry, setGeometry] = useState(null);
   const [font, setFont] = useState(null);
   
+  // Font URLs mapping - mapped to closest available Three.js fonts
+  const fontUrls = {
+    helvetiker: 'https://threejs.org/examples/fonts/helvetiker_bold.typeface.json', // Helvetica
+    gentilis: 'https://threejs.org/examples/fonts/gentilis_bold.typeface.json', // Garamond
+    droid_sans: 'https://threejs.org/examples/fonts/droid/droid_sans_bold.typeface.json', // Inter
+    optimer: 'https://threejs.org/examples/fonts/optimer_bold.typeface.json', // Caveat
+    droid_serif: 'https://threejs.org/examples/fonts/droid/droid_serif_bold.typeface.json', // Pacifico
+  };
+
   // Load font
   useEffect(() => {
     const loader = new FontLoader();
-    loader.load('/fonts/helvetiker_regular.typeface.json', (loadedFont) => {
+    const fontUrl = fontUrls[textFont] || fontUrls.helvetiker;
+    
+    console.log(`🔤 Loading font: ${textFont}`);
+    loader.load(fontUrl, (loadedFont) => {
       setFont(loadedFont);
-      console.log('🔤 Font loaded for SurfaceTextMesh');
+      console.log(`🔤 Font "${textFont}" loaded for SurfaceTextMesh`);
     }, undefined, (err) => {
-      console.error('Failed to load font:', err);
-      // Try alternative path
-      loader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', (loadedFont) => {
-        setFont(loadedFont);
-        console.log('🔤 Font loaded from CDN');
-      });
+      console.error(`Failed to load font "${textFont}":`, err);
+      // Fallback to helvetiker if failed
+      if (textFont !== 'helvetiker') {
+        loader.load(fontUrls.helvetiker, (loadedFont) => {
+          setFont(loadedFont);
+          console.log('🔤 Fallback font loaded');
+        });
+      }
     });
-  }, []);
+  }, [textFont]);
   
   // Calculate rotated basis vectors
   const basis = useMemo(() => {

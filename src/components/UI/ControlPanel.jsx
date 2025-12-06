@@ -161,9 +161,23 @@ const ControlPanel = ({
             >
               Test Mode
             </button>
+            <button
+            type="button"
+            className="sample-button"
+            onClick={() => { setObjFile('./Morpheus_uv.obj'); setMode('inscription'); }}
+            style={{
+                background: mode === 'inscription' ? '#000' : '#f5f5f5',
+                color: mode === 'inscription' ? '#fff' : '#000',
+                flex: '1 1 45%',
+                border: mode === 'inscription' ? '1px solid #000' : '1px solid #e0e0e0'
+              }}
+            >
+              Inscription
+            </button>
         </div>
         {mode === 'original' && objFile && <p className="file-status">✓ {objFile.split('/').pop()}</p>}
         {mode === 'test' && <p className="file-status">Test Mode Active</p>}
+        {mode === 'inscription' && <p className="file-status">Inscription Mode - {objFile?.split('/').pop()}</p>}
       </div>
 
       {/* TEST MODE UI */}
@@ -281,6 +295,29 @@ const ControlPanel = ({
                       }}
                     />
                   </div>
+
+                  {/* Font Selection */}
+                  <div style={{ marginBottom: '6px' }}>
+                    <select
+                      value={inscription.font || 'helvetiker'}
+                      onChange={(e) => updateInscription(inscription.id, { font: e.target.value })}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        width: '100%',
+                        padding: '4px 6px',
+                        fontSize: '11px',
+                        border: '1px solid #ddd',
+                        boxSizing: 'border-box',
+                        borderRadius: '2px'
+                      }}
+                    >
+                      <option value="helvetiker">Helvetica</option>
+                      <option value="gentilis">Garamond</option>
+                      <option value="droid_sans">Inter</option>
+                      <option value="optimer">Caveat</option>
+                      <option value="droid_serif">Pacifico</option>
+                    </select>
+                  </div>
                   
                   {/* Scale Slider */}
                   <div style={{ marginBottom: '4px' }}>
@@ -386,6 +423,264 @@ const ControlPanel = ({
           </div>
 
           {/* Global Settings Card */}
+          <div style={{ marginTop: '16px', padding: '10px', background: '#f5f5f5', border: '1px solid #e0e0e0' }}>
+            <p style={{ fontSize: '11px', fontWeight: '600', color: '#333', margin: '0 0 8px 0' }}>
+              Display Settings
+            </p>
+            <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: '#333' }}>
+                <input
+                  type="checkbox"
+                  checked={showMarker}
+                  onChange={(e) => setShowMarker(e.target.checked)}
+                  style={{ width: '12px', height: '12px', cursor: 'pointer' }}
+                />
+                <span>Marker</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: '#333' }}>
+                <input
+                  type="checkbox"
+                  checked={showTestText}
+                  onChange={(e) => setShowTestText(e.target.checked)}
+                  style={{ width: '12px', height: '12px', cursor: 'pointer' }}
+                />
+                <span>Dots</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: '#333' }}>
+                <input
+                  type="checkbox"
+                  checked={showTextMesh}
+                  onChange={(e) => setShowTextMesh(e.target.checked)}
+                  style={{ width: '12px', height: '12px', cursor: 'pointer' }}
+                />
+                <span>Text Mesh</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: '#333' }}>
+                <input
+                  type="checkbox"
+                  checked={conformToSurface}
+                  onChange={(e) => setConformToSurface(e.target.checked)}
+                  style={{ width: '12px', height: '12px', cursor: 'pointer' }}
+                />
+                <span>Conform</span>
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer', fontSize: '10px', color: '#333' }}>
+                <input
+                  type="checkbox"
+                  checked={showUVMap}
+                  onChange={(e) => setShowUVMap(e.target.checked)}
+                  style={{ width: '12px', height: '12px', cursor: 'pointer' }}
+                />
+                <span>UV Map</span>
+              </label>
+            </div>
+          </div>
+
+          {/* Advanced Rendering Toggle */}
+          <div className="control-group" style={{ marginTop: '20px' }}>
+            <label style={{ display: 'flex', alignItems: 'center', gap: '8px', cursor: 'pointer' }}>
+              <input
+                type="checkbox"
+                checked={useAdvancedRendering}
+                onChange={(e) => setUseAdvancedRendering(e.target.checked)}
+                style={{ width: '18px', height: '18px', cursor: 'pointer' }}
+              />
+              <span style={{ fontSize: '12px', fontWeight: '600' }}>Advanced Rendering</span>
+            </label>
+          </div>
+        </>
+      ) : mode === 'inscription' ? (
+        <>
+          {/* INSCRIPTION MODE UI - Uses Morpheus_uv.obj with UV mapping */}
+          
+          {/* Inscription Cards Section */}
+          <div style={{ marginTop: '16px' }}>
+            <p style={{ fontSize: '11px', color: '#333', margin: '0 0 10px 0' }}>
+              <strong>Inscriptions</strong> — Click on mesh to place text
+            </p>
+            
+            {/* Inscription Cards */}
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+              {inscriptions.map((inscription, index) => (
+                <div
+                  key={inscription.id}
+                  onClick={() => setSelectedInscriptionId(inscription.id)}
+                  style={{
+                    padding: '10px',
+                    border: selectedInscriptionId === inscription.id ? '2px solid #000' : '1px solid #e0e0e0',
+                    background: selectedInscriptionId === inscription.id ? '#f0f0f0' : '#fff',
+                    cursor: 'pointer',
+                    position: 'relative'
+                  }}
+                >
+                  {/* Card Header */}
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '8px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '600', color: '#333' }}>
+                      #{index + 1} {inscription.clickData ? '✓' : '○'}
+                    </span>
+                    {inscriptions.length > 1 && (
+                      <button
+                        onClick={(e) => { e.stopPropagation(); deleteInscription(inscription.id); }}
+                        style={{
+                          background: 'none',
+                          border: 'none',
+                          cursor: 'pointer',
+                          fontSize: '14px',
+                          color: '#999',
+                          padding: '0 4px'
+                        }}
+                      >
+                        ×
+                      </button>
+                    )}
+                  </div>
+                  
+                  {/* Text Input */}
+                  <div style={{ marginBottom: '6px' }}>
+                    <input
+                      type="text"
+                      value={inscription.text}
+                      onChange={(e) => updateInscription(inscription.id, { text: e.target.value })}
+                      onClick={(e) => e.stopPropagation()}
+                      placeholder="Enter text"
+                      maxLength="20"
+                      style={{
+                        width: '100%',
+                        padding: '4px 6px',
+                        fontSize: '11px',
+                        border: '1px solid #ddd',
+                        boxSizing: 'border-box'
+                      }}
+                    />
+                  </div>
+
+                  {/* Font Selection */}
+                  <div style={{ marginBottom: '6px' }}>
+                    <select
+                      value={inscription.font || 'helvetiker'}
+                      onChange={(e) => updateInscription(inscription.id, { font: e.target.value })}
+                      onClick={(e) => e.stopPropagation()}
+                      style={{
+                        width: '100%',
+                        padding: '4px 6px',
+                        fontSize: '11px',
+                        border: '1px solid #ddd',
+                        boxSizing: 'border-box',
+                        borderRadius: '2px'
+                      }}
+                    >
+                      <option value="helvetiker">Helvetica</option>
+                      <option value="gentilis">Garamond</option>
+                      <option value="droid_sans">Inter</option>
+                      <option value="optimer">Caveat</option>
+                      <option value="droid_serif">Pacifico</option>
+                    </select>
+                  </div>
+                  
+                  {/* Scale Slider */}
+                  <div style={{ marginBottom: '4px' }}>
+                    <label style={{ fontSize: '10px', color: '#666' }}>
+                      Scale: {inscription.scale.toFixed(2)}
+                    </label>
+                    <input
+                      type="range"
+                      min="0.02"
+                      max="0.2"
+                      step="0.01"
+                      value={inscription.scale}
+                      onChange={(e) => updateInscription(inscription.id, { scale: parseFloat(e.target.value) })}
+                      onClick={(e) => e.stopPropagation()}
+                      className="slider"
+                      style={{ marginTop: '2px' }}
+                    />
+                  </div>
+                  
+                  {/* Rotation Slider */}
+                  <div style={{ marginBottom: '4px' }}>
+                    <label style={{ fontSize: '10px', color: '#666' }}>
+                      Rotation: {inscription.rotation}°
+                    </label>
+                    <input
+                      type="range"
+                      min="0"
+                      max="360"
+                      step="5"
+                      value={inscription.rotation}
+                      onChange={(e) => updateInscription(inscription.id, { rotation: parseInt(e.target.value) })}
+                      onClick={(e) => e.stopPropagation()}
+                      className="slider"
+                      style={{ marginTop: '2px' }}
+                    />
+                  </div>
+                  
+                  {/* Depth Slider */}
+                  <div>
+                    <label style={{ fontSize: '10px', color: '#666' }}>
+                      Depth: {inscription.depth.toFixed(3)}
+                    </label>
+                    <input
+                      type="range"
+                      min="0.005"
+                      max="0.05"
+                      step="0.005"
+                      value={inscription.depth}
+                      onChange={(e) => updateInscription(inscription.id, { depth: parseFloat(e.target.value) })}
+                      onClick={(e) => e.stopPropagation()}
+                      className="slider"
+                      style={{ marginTop: '2px' }}
+                    />
+                  </div>
+                  
+                  {/* Position Info (if placed) */}
+                  {inscription.clickData && (
+                    <div style={{ marginTop: '6px', fontSize: '9px', color: '#888' }}>
+                      Position: ({inscription.clickData.point.x.toFixed(2)}, {inscription.clickData.point.y.toFixed(2)}, {inscription.clickData.point.z.toFixed(2)})
+                    </div>
+                  )}
+                </div>
+              ))}
+              
+              {/* Add New Inscription Card */}
+              <div
+                onClick={addInscription}
+                style={{
+                  padding: '20px',
+                  border: '2px dashed #ccc',
+                  background: '#fafafa',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  transition: 'border-color 0.2s'
+                }}
+                onMouseEnter={(e) => e.currentTarget.style.borderColor = '#999'}
+                onMouseLeave={(e) => e.currentTarget.style.borderColor = '#ccc'}
+              >
+                <span style={{ fontSize: '24px', color: '#999' }}>+</span>
+              </div>
+              
+              {/* Apply Inscriptions Button */}
+              <button
+                onClick={onApplyInscriptions}
+                disabled={!inscriptions.some(i => i.clickData)}
+                style={{
+                  marginTop: '12px',
+                  padding: '12px 16px',
+                  background: inscriptions.some(i => i.clickData) ? '#000' : '#ccc',
+                  color: '#fff',
+                  border: 'none',
+                  cursor: inscriptions.some(i => i.clickData) ? 'pointer' : 'not-allowed',
+                  fontWeight: '600',
+                  fontSize: '12px',
+                  width: '100%'
+                }}
+              >
+                🔪 Apply Inscriptions (Carve)
+              </button>
+            </div>
+          </div>
+
+          {/* Display Settings Card */}
           <div style={{ marginTop: '16px', padding: '10px', background: '#f5f5f5', border: '1px solid #e0e0e0' }}>
             <p style={{ fontSize: '11px', fontWeight: '600', color: '#333', margin: '0 0 8px 0' }}>
               Display Settings
