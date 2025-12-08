@@ -240,8 +240,8 @@ export default function SurfaceTextMesh({
       const mapped = mapToSurface(uvPoint);
       
       if (mapped) {
-        // Front face: on surface with small offset
-        const frontPos = mapped.position.clone().add(mapped.normal.clone().multiplyScalar(0.001));
+        // Front face: on surface with offset to prevent z-fighting and burial
+        const frontPos = mapped.position.clone().add(mapped.normal.clone().multiplyScalar(0.01));
         frontVertices.push(frontPos);
         
         // Back face: extruded inward (negative normal direction for subtraction)
@@ -255,7 +255,7 @@ export default function SurfaceTextMesh({
           .add(basis.tangent.clone().multiplyScalar(x))
           .add(basis.bitangent.clone().multiplyScalar(y));
         
-        frontVertices.push(worldPos.clone().add(basis.normal.clone().multiplyScalar(0.001)));
+        frontVertices.push(worldPos.clone().add(basis.normal.clone().multiplyScalar(0.01)));
         backVertices.push(worldPos.clone().add(basis.normal.clone().multiplyScalar(-textDepth)));
         vertexNormals.push(basis.normal.clone());
         unmappedCount++;

@@ -10,7 +10,7 @@ import ControlPanel from './components/UI/ControlPanel';
 import CameraController from './components/Scene/CameraController';
 import ClipMesh from './components/Scene/ClipMesh';
 import { generateGUID, calculatePrice } from './utils/math';
-import { exportAndUploadGeometry, uploadToGoogleDrive } from './utils/objExporter';
+import { exportAndUploadGeometry, uploadToGoogleDrive, downloadSTL } from './utils/objExporter';
 import './App.css';
 
 // Shared scale constant for Morpheus model and its accessories (clip)
@@ -213,6 +213,24 @@ function App() {
       alert(`❌ Export failed: ${error.message}`);
     } finally {
       setIsExporting(false);
+    }
+  };
+
+  // Handle STL download for Inscription mode
+  const handleDownloadSTL = () => {
+    if (!currentGeometry) {
+      alert('No geometry available. Please apply inscriptions first.');
+      return;
+    }
+    
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `inscription_mesh_${timestamp}.stl`;
+    
+    try {
+      downloadSTL(currentGeometry, filename);
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert(`Download failed: ${error.message}`);
     }
   };
 
@@ -452,6 +470,7 @@ function App() {
         handleOrder={handleOrder}
         isOrdering={isOrdering}
         onApplyInscriptions={handleApplyInscriptions}
+        onDownloadSTL={handleDownloadSTL}
       />
 
       {/* 右侧 3D 查看器 */}
@@ -493,6 +512,7 @@ function App() {
                     scaleY={mode === 'test' || mode === 'inscription' ? 1.0 : scaleY}
                     scaleZ={mode === 'test' || mode === 'inscription' ? 1.0 : scaleZ}
                     twist={mode === 'inscription' ? 0 : twist}
+                    initialRotationX={mode === 'inscription' ? -Math.PI / 2 : 0}
                     booleanSubtract={mode === 'test' || mode === 'inscription' ? false : (debugMode || (objFile && objFile.includes('Morpheus')) ? booleanSubtract : false)}
                     subtractText={subtractText}
                     textFont={textFont}
@@ -512,7 +532,7 @@ function App() {
                     applyInscriptions={triggerApplyInscriptions}
                     onInscriptionsApplied={handleInscriptionsApplied}
                   />
-                  <ClipMesh visible={showClip} />
+                  <ClipMesh visible={showClip || mode === 'inscription'} />
                   
                   {/* Surface Inscription for Test Mode and Inscription Mode */}
                   {(mode === 'test' || mode === 'inscription') && (

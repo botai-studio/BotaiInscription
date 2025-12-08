@@ -102,3 +102,34 @@ export async function exportAndUploadGeometry(geometry, filename) {
   
   return result;
 }
+
+// Helper: Download geometry as STL file locally
+export function downloadSTL(geometry, filename = 'model.stl') {
+  if (!geometry) {
+    throw new Error('No geometry provided');
+  }
+  
+  // Ensure filename ends with .stl
+  if (!filename.toLowerCase().endsWith('.stl')) {
+    filename = filename.replace(/\.[^/.]+$/, "") + ".stl";
+  }
+
+  console.log(`📥 Generating STL for download: ${filename}...`);
+  const stlContent = geometryToSTL(geometry);
+  
+  // Create blob and download link
+  const blob = new Blob([stlContent], { type: 'application/octet-stream' });
+  const url = URL.createObjectURL(blob);
+  
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  
+  // Clean up the URL object
+  URL.revokeObjectURL(url);
+  
+  console.log('✅ Download initiated!');
+}

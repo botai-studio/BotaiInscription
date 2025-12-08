@@ -62,7 +62,8 @@ const ControlPanel = ({
   confirmationNumber,
   handleOrder,
   isOrdering,
-  onApplyInscriptions // NEW: callback to apply inscriptions
+  onApplyInscriptions, // callback to apply inscriptions
+  onDownloadSTL // callback to download STL file
 }) => {
   return (
     <div className="control-panel">
@@ -676,6 +677,24 @@ const ControlPanel = ({
                 }}
               >
                 🔪 Apply Inscriptions (Carve)
+              </button>
+              
+              {/* Download STL Button */}
+              <button
+                onClick={onDownloadSTL}
+                style={{
+                  marginTop: '8px',
+                  padding: '12px 16px',
+                  background: '#2196F3',
+                  color: '#fff',
+                  border: 'none',
+                  cursor: 'pointer',
+                  fontWeight: '600',
+                  fontSize: '12px',
+                  width: '100%'
+                }}
+              >
+                📥 Download STL
               </button>
             </div>
           </div>

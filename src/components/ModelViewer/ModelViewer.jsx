@@ -11,6 +11,7 @@ function ModelViewer({
   scaleY = 1.0,
   scaleZ = 1.0,
   twist = 0, 
+  initialRotationX = 0, // Initial rotation in radians around X axis (applied to geometry)
   booleanSubtract = false, 
   subtractText = 'HELLO',
   textFont = 'helvetiker',
@@ -124,7 +125,24 @@ function ModelViewer({
         
         // Store first geometry for export callback
         if (geometries.length > 0) {
-          setOriginalGeometry(geometries[0]);
+          // Apply initial rotation to geometry if specified
+          let geom = geometries[0];
+          if (initialRotationX !== 0) {
+            const rotationMatrix = new THREE.Matrix4().makeRotationX(initialRotationX);
+            geom.applyMatrix4(rotationMatrix);
+            console.log(`🔄 Applied initial X rotation: ${(initialRotationX * 180 / Math.PI).toFixed(1)}°`);
+          }
+          setOriginalGeometry(geom);
+        }
+        
+        // Apply initial rotation to the loaded object as well
+        if (initialRotationX !== 0) {
+          loadedObject.traverse((child) => {
+            if (child.isMesh) {
+              const rotationMatrix = new THREE.Matrix4().makeRotationX(initialRotationX);
+              child.geometry.applyMatrix4(rotationMatrix);
+            }
+          });
         }
 
         // 计算包围盒并居中
@@ -167,7 +185,7 @@ function ModelViewer({
       setObj(null);
       setOriginalGeometry(null);
     };
-  }, [objUrl]);
+  }, [objUrl, initialRotationX]);
 
   // Step 1: Apply subdivision only
   useEffect(() => {

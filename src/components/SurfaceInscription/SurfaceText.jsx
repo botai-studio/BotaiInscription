@@ -44,9 +44,10 @@ export default function SurfaceText({
     const charHeight = textScale * 1.2; // Height of each character (taller - text ratio)
     const charSpacing = textScale * 0.4; // Space between characters (increased for more distance)
     
-    // Click position is top-left corner (U=0 is left, V=0 is top)
+    // Click position is origin, text goes in positive X (tangent) and positive Y (bitangent)
+    // Match SurfaceTextMesh which uses font coordinates (positive Y is up)
     const startX = 0; // Start at click position (left edge)
-    const startY = -charHeight; // Go downward from click position (top edge)
+    const startY = 0; // Start at click position, go upward (positive direction)
     
     // Generate dot positions in UV space (3x3 grid per character)
     const uvDots = [];
@@ -74,7 +75,7 @@ export default function SurfaceText({
         const worldPos = position.clone()
           .add(basis.tangent.clone().multiplyScalar(dot.u))
           .add(basis.bitangent.clone().multiplyScalar(dot.v))
-          .add(basis.normal.clone().multiplyScalar(0.005));
+          .add(basis.normal.clone().multiplyScalar(0.02)); // Increased offset above surface
         return worldPos;
       });
       setDotPositions(worldDots);
@@ -223,7 +224,7 @@ export default function SurfaceText({
         
         // Offset along the LOCAL face normal (not click normal) to prevent occlusion
         // Use a larger offset scaled with textScale to ensure visibility
-        const offsetAmount = Math.max(0.008, textScale * 0.1);
+        const offsetAmount = Math.max(0.015, textScale * 0.15);
         surfacePos.add(bestTriangle.faceNormal.clone().multiplyScalar(offsetAmount));
         worldDots.push({
           position: surfacePos,
