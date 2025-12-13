@@ -4,7 +4,7 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
  * UVPanel - 2D panel showing the UV map of the model
  * Displays UV triangles, click point, and grid dots in UV space
  */
-export default function UVPanel({ uvData, clickData, gridData }) {
+export default function UVPanel({ uvData, clickData, gridData, textData }) {
   const canvasRef = useRef(null);
   const containerRef = useRef(null);
   
@@ -216,6 +216,32 @@ export default function UVPanel({ uvData, clickData, gridData }) {
       });
     }
 
+    // Draw text triangles in UV space
+    if (textData && textData.uvVertices && textData.triangles) {
+      const { uvVertices, triangles } = textData;
+      
+      // Draw filled triangles
+      ctx.fillStyle = 'rgba(255, 140, 0, 0.5)'; // Orange fill
+      ctx.strokeStyle = 'rgba(180, 80, 0, 0.8)'; // Darker orange stroke
+      ctx.lineWidth = 1 / canvasZoom;
+      
+      triangles.forEach((tri) => {
+        const v0 = uvVertices[tri[0]];
+        const v1 = uvVertices[tri[1]];
+        const v2 = uvVertices[tri[2]];
+        
+        if (v0 && v1 && v2) {
+          ctx.beginPath();
+          ctx.moveTo(v0.u * uvScale, -v0.v * uvScale);
+          ctx.lineTo(v1.u * uvScale, -v1.v * uvScale);
+          ctx.lineTo(v2.u * uvScale, -v2.v * uvScale);
+          ctx.closePath();
+          ctx.fill();
+          ctx.stroke();
+        }
+      });
+    }
+
     ctx.restore();
 
     // Draw axis labels (in screen space)
@@ -243,11 +269,16 @@ export default function UVPanel({ uvData, clickData, gridData }) {
       ctx.fillText(`Grid: ${mappedCount}/${gridData.uvPoints.length} mapped`, 10, 60);
     }
     
+    if (textData && textData.uvVertices) {
+      const mappedCount = textData.vertices3D ? textData.vertices3D.filter(v => v).length : 0;
+      ctx.fillText(`Text: ${mappedCount}/${textData.uvVertices.length} verts, ${textData.triangles.length} tris`, 10, 75);
+    }
+    
     if (uvData) {
       ctx.fillText(`Triangles: ${uvData.triangles.length}`, 10, height - 10);
     }
 
-  }, [uvData, clickData, gridData, canvasOffset, canvasZoom, panelSize]);
+  }, [uvData, clickData, gridData, textData, canvasOffset, canvasZoom, panelSize]);
 
   // Handle panel dragging
   const handleMouseDown = useCallback((e) => {
@@ -314,6 +345,17 @@ export default function UVPanel({ uvData, clickData, gridData }) {
     setCanvasOffset({ x: 0, y: 0 });
     setCanvasZoom(1);
   }, []);
+
+  // Add non-passive wheel listener to canvas
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+    
+    canvas.addEventListener('wheel', handleWheel, { passive: false });
+    return () => {
+      canvas.removeEventListener('wheel', handleWheel);
+    };
+  }, [handleWheel]);
 
   useEffect(() => {
     window.addEventListener('mousemove', handleMouseMove);
@@ -385,7 +427,6 @@ export default function UVPanel({ uvData, clickData, gridData }) {
           onMouseMove={handleCanvasMouseMove}
           onMouseUp={handleCanvasMouseUp}
           onMouseLeave={handleCanvasMouseUp}
-          onWheel={handleWheel}
           style={{
             cursor: isPanning ? 'grabbing' : 'grab',
           }}
