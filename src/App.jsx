@@ -1,14 +1,17 @@
 import React, { useState, useRef, useCallback, useMemo, useEffect } from 'react';
 import { Canvas } from '@react-three/fiber';
 import { OrbitControls } from '@react-three/drei';
+import { EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import MorpheusModel from './components/Scene/MorpheusModel';
+import ClipModel from './components/Scene/ClipModel';
 import SurfaceRaycaster from './components/SurfaceInscription/SurfaceRaycaster';
 import ClickMarker from './components/SurfaceInscription/ClickMarker';
 import UVTextMapper from './components/SurfaceInscription/UVTextMapper';
 import UVPanel from './components/UI/UVPanel';
 import ControlPanel from './components/UI/ControlPanel';
 import { subtractGeometry } from './utils/csgUtils';
+import { downloadSTL, uploadToGoogleDrive, generateGUID } from './utils/stlExporter';
 import './App.css';
 
 // Generate unique ID
@@ -55,6 +58,11 @@ function App() {
   const [showArrows, setShowArrows] = useState(false);
   const [showTextMesh, setShowTextMesh] = useState(true);
   const [showUVPanel, setShowUVPanel] = useState(true);
+  const [showClipModel, setShowClipModel] = useState(true);
+  
+  // Order state
+  const [email, setEmail] = useState('');
+  const [isOrdering, setIsOrdering] = useState(false);
   
   // Mesh reference
   const morpheusRef = useRef(null);
@@ -277,6 +285,148 @@ function App() {
     console.log('✅ Reset complete');
   }, []);
 
+  // Handle STL download
+  const handleDownloadSTL = useCallback(() => {
+    if (!morpheusRef.current) {
+      alert('No model available.');
+      return;
+    }
+
+    // Find the mesh
+    let targetMesh = null;
+    morpheusRef.current.traverse((child) => {
+      if (child.isMesh && !targetMesh) {
+        targetMesh = child;
+      }
+    });
+
+    if (!targetMesh || !targetMesh.geometry) {
+      alert('No geometry available.');
+      return;
+    }
+
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = `botai_inscription_${timestamp}.stl`;
+
+    try {
+      downloadSTL(targetMesh.geometry, filename);
+    } catch (error) {
+      console.error('Download failed:', error);
+      alert(`Download failed: ${error.message}`);
+    }
+  }, []);
+
+  // Handle order submission
+  const handleOrder = useCallback(async () => {
+    if (!email || !email.includes('@')) {
+      alert('Please enter a valid email address');
+      return;
+    }
+
+    if (!morpheusRef.current) {
+      alert('No model available.');
+      return;
+    }
+
+    // Find the mesh
+    let targetMesh = null;
+    morpheusRef.current.traverse((child) => {
+      if (child.isMesh && !targetMesh) {
+        targetMesh = child;
+      }
+    });
+
+    if (!targetMesh || !targetMesh.geometry) {
+      alert('No geometry available.');
+      return;
+    }
+
+    setIsOrdering(true);
+
+    try {
+      // Generate confirmation number
+      const guid = generateGUID();
+      const confirmationNumber = guid.substring(0, 8);
+      
+      // Build product name
+      const productName = `Botai Custom Inscription-${confirmationNumber}`;
+      const price = 60; // Base price
+      
+      console.log('Creating Order:', {
+        guid,
+        productName,
+        price,
+        email
+      });
+
+      // Build complete inscription data for JSON
+      const orderData = {
+        confirmationNumber,
+        email,
+        timestamp: new Date().toISOString(),
+        inscriptions: inscriptions.map(i => ({
+          id: i.id,
+          text: i.text,
+          scale: i.scale,
+          depth: i.depth,
+          font: i.font,
+          rotation: i.rotation,
+          clickData: i.clickData ? {
+            point: { x: i.clickData.point.x, y: i.clickData.point.y, z: i.clickData.point.z },
+            normal: { x: i.clickData.normal.x, y: i.clickData.normal.y, z: i.clickData.normal.z },
+            uv: { x: i.clickData.uv.x, y: i.clickData.uv.y },
+            faceIndex: i.clickData.faceIndex,
+            tangent: i.clickData.tangent ? { x: i.clickData.tangent.x, y: i.clickData.tangent.y, z: i.clickData.tangent.z } : null,
+            bitangent: i.clickData.bitangent ? { x: i.clickData.bitangent.x, y: i.clickData.bitangent.y, z: i.clickData.bitangent.z } : null,
+            uvTangent: i.clickData.uvTangent ? { x: i.clickData.uvTangent.x, y: i.clickData.uvTangent.y } : null,
+            uvBitangent: i.clickData.uvBitangent ? { x: i.clickData.uvBitangent.x, y: i.clickData.uvBitangent.y } : null
+          } : null
+        }))
+      };
+      
+      console.log('📤 Uploading order JSON...');
+      await uploadToGoogleDrive(JSON.stringify(orderData, null, 2), `order_${confirmationNumber}.json`);
+      console.log('✅ Order JSON uploaded');
+
+      // Call Shopify API
+      const apiUrl = new URL('https://shopify-draft-order-io3s5gd2e-ricerolls-projects.vercel.app/api/create-order');
+      apiUrl.searchParams.append('productName', productName);
+      apiUrl.searchParams.append('price', price);
+      apiUrl.searchParams.append('email', email);
+      
+      console.log('API URL:', apiUrl.toString());
+
+      const response = await fetch(apiUrl.toString(), {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+        }
+      });
+
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error('API Error Response:', errorText);
+        throw new Error(`API Request Failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      console.log('API Response:', data);
+      
+      // Redirect to Shopify checkout
+      if (data.checkoutUrl) {
+        console.log('Redirecting to Shopify:', data.checkoutUrl);
+        window.location.href = data.checkoutUrl;
+      } else {
+        throw new Error('Failed to get Shopify URL');
+      }
+
+    } catch (error) {
+      console.error('Order Failed:', error);
+      alert('Order failed: ' + error.message);
+      setIsOrdering(false);
+    }
+  }, [email, inscriptions]);
+
   return (
     <div className="app-container">
       {/* Left Control Panel */}
@@ -299,6 +449,13 @@ function App() {
         setShowTextMesh={setShowTextMesh}
         showUVPanel={showUVPanel}
         setShowUVPanel={setShowUVPanel}
+        showClipModel={showClipModel}
+        setShowClipModel={setShowClipModel}
+        onDownloadSTL={handleDownloadSTL}
+        email={email}
+        setEmail={setEmail}
+        onOrder={handleOrder}
+        isOrdering={isOrdering}
       />
 
       {/* 3D Canvas */}
@@ -311,8 +468,9 @@ function App() {
           <directionalLight position={[10, 10, 5]} intensity={1} />
           <directionalLight position={[-10, -10, -5]} intensity={0.5} />
           
-          {/* Model */}
+          {/* Models */}
           <MorpheusModel ref={morpheusRef} onUVDataReady={handleUVDataReady} onModelReady={handleModelReady} />
+          <ClipModel visible={showClipModel} />
           
           {/* Surface interaction */}
           <SurfaceRaycaster 
@@ -355,6 +513,11 @@ function App() {
             )
           )}
           
+          {/* Post-processing effects */}
+          <EffectComposer>
+            <N8AO aoRadius={0.15} intensity={4} distanceFalloff={2} />
+          </EffectComposer>
+          
           {/* Camera controls */}
           <OrbitControls />
         </Canvas>
@@ -367,6 +530,49 @@ function App() {
             gridData={null}
             textData={null}
           />
+        )}
+        
+        {/* Upload overlay */}
+        {isOrdering && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            color: 'white',
+            zIndex: 1000,
+            gap: '20px'
+          }}>
+            <div className="upload-icon">
+              <svg 
+                width="32" 
+                height="32" 
+                viewBox="0 0 24 24" 
+                fill="none" 
+                stroke="white" 
+                strokeWidth="2" 
+                strokeLinecap="round" 
+                strokeLinejoin="round"
+                className="upload-arrow-svg"
+              >
+                <line x1="12" y1="19" x2="12" y2="5"></line>
+                <polyline points="5 12 12 5 19 12"></polyline>
+              </svg>
+            </div>
+            <div style={{
+              fontSize: '24px',
+              fontWeight: 'bold',
+              marginTop: '10px'
+            }}>
+              Uploading your design...
+            </div>
+          </div>
         )}
       </div>
     </div>

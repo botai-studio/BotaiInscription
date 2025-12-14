@@ -30,7 +30,14 @@ export default function ControlPanel({
   showTextMesh,
   setShowTextMesh,
   showUVPanel,
-  setShowUVPanel
+  setShowUVPanel,
+  showClipModel,
+  setShowClipModel,
+  onDownloadSTL,
+  email,
+  setEmail,
+  onOrder,
+  isOrdering
 }) {
   const [instructionsCollapsed, setInstructionsCollapsed] = useState(false);
   const [settingsCollapsed, setSettingsCollapsed] = useState(true);
@@ -196,6 +203,14 @@ export default function ControlPanel({
         <button onClick={onReset} className="btn btn--secondary">
           ↺ Reset
         </button>
+        
+        <button 
+          onClick={onDownloadSTL} 
+          className="btn btn--secondary"
+          title="Download the current model as STL file"
+        >
+          📥 Download STL
+        </button>
       </div>
 
       <div> </div>
@@ -265,6 +280,14 @@ export default function ControlPanel({
               />
               <span>Show UV Panel</span>
             </label>
+            <label className="checkbox-label">
+              <input
+                type="checkbox"
+                checked={showClipModel}
+                onChange={(e) => setShowClipModel(e.target.checked)}
+              />
+              <span>Show Clip Model</span>
+            </label>
           </div>
         )}
       </div>
@@ -275,6 +298,36 @@ export default function ControlPanel({
           <p>✓ Inscriptions applied successfully</p>
         </div>
       )}
+
+      {/* Spacer */}
+      <div style={{ flex: 1 }}></div>
+
+      {/* Email Input */}
+      <div className="control-group" style={{ marginTop: '20px' }}>
+        <label style={{ fontSize: '12px', fontWeight: '600' }}>Email Address:</label>
+        <input
+          type="email"
+          placeholder="your@email.com"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          className="email-input"
+        />
+      </div>
+
+      {/* Price Display */}
+      <div className="price-display">
+        <h2>$58</h2>
+        <p className="price-note">Base price for custom inscription</p>
+      </div>
+
+      {/* Order Button */}
+      <button
+        className="order-button"
+        onClick={onOrder}
+        disabled={isOrdering || !email}
+      >
+        {isOrdering ? 'Processing...' : 'Order Now'}
+      </button>
     </div>
   );
 }
