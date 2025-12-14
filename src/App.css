@@ -129,3 +129,304 @@ body {
   width: 100%;
   height: calc(100% - 40px);
 }
+
+/* ========== Control Panel Components ========== */
+
+/* Info box (instructions, status messages) */
+.info-box {
+  padding: 10px;
+  background: #f5f5f5;
+  border-radius: 0px;
+  margin-bottom: 16px;
+}
+
+.info-box p {
+  font-size: 11px;
+  color: #333;
+  margin: 0;
+}
+
+.info-box--success {
+  background: #f5f5f5;
+  border: 1px solid #000;
+}
+
+.info-box--success p {
+  color: #333;
+  font-weight: 500;
+}
+
+.info-box--warning {
+  background: #fff3e0;
+  border: 1px solid #ff9800;
+}
+
+.info-box--warning p {
+  color: #e65100;
+  font-weight: 500;
+}
+
+/* Section title */
+.section-title {
+  font-size: 12px;
+  font-weight: 600;
+  color: #333;
+  margin: 0 0 10px 0;
+}
+
+.section-title--small {
+  font-size: 11px;
+}
+
+/* Inscription card */
+.inscription-card {
+  padding: 12px;
+  border: 1px solid #e0e0e0;
+  background: #fff;
+  border-radius: 0px;
+  cursor: pointer;
+  position: relative;
+  transition: all 0.15s ease;
+}
+
+.inscription-card--selected {
+  border: 2px solid #000;
+  background: #f8f8f8;
+}
+
+.inscription-card__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.inscription-card__title {
+  font-size: 11px;
+  font-weight: 600;
+  color: #333;
+}
+
+.inscription-card__delete {
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 16px;
+  color: #999;
+  padding: 0 4px;
+  line-height: 1;
+}
+
+.inscription-card__delete:hover {
+  color: #666;
+}
+
+.inscription-card__uv-info {
+  margin-top: 8px;
+  font-size: 9px;
+  color: #888;
+  font-family: monospace;
+}
+
+/* Add card button */
+.add-card {
+  padding: 20px;
+  border: 1px dashed #ccc;
+  background: #fafafa;
+  border-radius: 0px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: border-color 0.2s;
+}
+
+.add-card:hover {
+  border-color: #999;
+}
+
+.add-card__icon {
+  font-size: 24px;
+  color: #999;
+}
+
+/* Form field (slider, select wrapper) */
+.form-field {
+  margin-bottom: 6px;
+}
+
+.form-field__label {
+  font-size: 10px;
+  color: #666;
+  display: flex;
+  justify-content: space-between;
+}
+
+.form-field__label--block {
+  display: block;
+  margin-bottom: 4px;
+}
+
+/* Text input in card */
+.card-input {
+  width: 100%;
+  padding: 6px 8px;
+  font-size: 12px;
+  border: 1px solid #ddd;
+  border-radius: 0px;
+  box-sizing: border-box;
+}
+
+.card-input:focus {
+  outline: none;
+  border-color: #000;
+}
+
+/* Select dropdown */
+.card-select {
+  width: 100%;
+  padding: 4px 6px;
+  font-size: 11px;
+  border: 1px solid #ddd;
+  border-radius: 0px;
+  box-sizing: border-box;
+  background: #fff;
+}
+
+.card-select:focus {
+  outline: none;
+  border-color: #000;
+}
+
+/* Action button */
+.btn {
+  padding: 12px 16px;
+  border: none;
+  border-radius: 0px;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 13px;
+  width: 100%;
+  transition: all 0.2s;
+}
+
+.btn--primary {
+  background: #000;
+  color: #fff;
+}
+
+.btn--primary:hover {
+  background: #333;
+}
+
+.btn--primary:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.btn--secondary {
+  background: #fff;
+  color: #333;
+  border: 1px solid #ddd;
+  font-weight: 500;
+}
+
+.btn--secondary:hover {
+  background: #f5f5f5;
+}
+
+/* Checkbox label */
+.checkbox-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  cursor: pointer;
+  font-size: 11px;
+  color: #333;
+}
+
+.checkbox-label input[type="checkbox"] {
+  width: 14px;
+  height: 14px;
+  cursor: pointer;
+  appearance: none;
+  -webkit-appearance: none;
+  background: #fff;
+  border: 1px solid #ccc;
+  border-radius: 2px;
+  position: relative;
+}
+
+.checkbox-label input[type="checkbox"]:checked {
+  background: #000;
+  border-color: #000;
+}
+
+.checkbox-label input[type="checkbox"]:checked::after {
+  content: '✓';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  font-size: 10px;
+  font-weight: bold;
+}
+
+/* Settings panel */
+.settings-panel {
+  margin-top: 20px;
+  padding: 12px;
+  background: #f5f5f5;
+  border-radius: 0px;
+}
+
+/* Collapsible component */
+.collapsible {
+  background: #f5f5f5;
+  border-radius: 0px;
+  margin-bottom: 0px;
+  overflow: hidden;
+}
+
+.collapsible__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 10px 12px;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 600;
+  color: #333;
+  user-select: none;
+  transition: background 0.15s ease;
+}
+
+.collapsible__header:hover {
+  background: #eee;
+}
+
+.collapsible__icon {
+  font-size: 14px;
+  font-weight: 400;
+  color: #666;
+}
+
+.collapsible__content {
+  padding: 0 12px 12px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.collapsible__content p {
+  font-size: 11px;
+  color: #333;
+  margin: 0;
+  line-height: 1.5;
+}
+
+.collapsible--collapsed .collapsible__header {
+  border-bottom: none;
+}
+

@@ -2,6 +2,11 @@ import React, { useEffect, useMemo, useState } from 'react';
 import * as THREE from 'three';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader';
 
+// Default fonts list
+const DEFAULT_FONTS = [
+  { id: 'helvetiker', name: 'Helvetica', url: 'https://threejs.org/examples/fonts/helvetiker_regular.typeface.json' }
+];
+
 /**
  * UVTextMapper - Creates extruded text in UV space and maps to 3D surface
  * Creates front face, back face, and side walls for proper CSG subtraction
@@ -13,19 +18,30 @@ export default function UVTextMapper({
   text = 'Roger',
   textScale = 0.01,
   extrudeDepth = 2.0,
+  fontId = 'helvetiker',
+  rotation = 0,
+  availableFonts = DEFAULT_FONTS,
   maxTriangleSize = 0.5, // Maximum edge length in text space before subdivision
-  onTextDataReady
+  onTextDataReady,
+  onOutOfBounds
 }) {
   const [font, setFont] = useState(null);
+  const [loadedFontId, setLoadedFontId] = useState(null);
 
-  // Load font
+  // Load font when fontId changes
   useEffect(() => {
+    const fontInfo = availableFonts.find(f => f.id === fontId) || availableFonts[0];
+    
+    // Skip if already loaded
+    if (loadedFontId === fontInfo.id && font) return;
+    
     const loader = new FontLoader();
-    loader.load('https://threejs.org/examples/fonts/helvetiker_regular.typeface.json', (loadedFont) => {
+    loader.load(fontInfo.url, (loadedFont) => {
       setFont(loadedFont);
-      console.log('🔤 Font loaded for UVTextMapper');
+      setLoadedFontId(fontInfo.id);
+      console.log(`🔤 Font loaded: ${fontInfo.name}`);
     });
-  }, []);
+  }, [fontId, availableFonts, loadedFontId, font]);
 
   // Generate extruded text mesh
   const textMeshData = useMemo(() => {
@@ -35,14 +51,23 @@ export default function UVTextMapper({
 
     const { uv, uvTangent } = clickData;
     
-    // UV bitangent (perpendicular to tangent)
+    // Apply rotation to UV tangent
+    const rotRad = (rotation * Math.PI) / 180;
+    const cosR = Math.cos(rotRad);
+    const sinR = Math.sin(rotRad);
+    const rotatedTangent = {
+      x: uvTangent.x * cosR - uvTangent.y * sinR,
+      y: uvTangent.x * sinR + uvTangent.y * cosR
+    };
+    
+    // UV bitangent (perpendicular to rotated tangent)
     const uvBitangent = {
-      x: -uvTangent.y,
-      y: uvTangent.x
+      x: -rotatedTangent.y,
+      y: rotatedTangent.x
     };
 
     console.log('📝 Generating extruded text mesh in UV space...');
-    console.log(`   Text: "${text}", Scale: ${textScale}, Depth: ${extrudeDepth}`);
+    console.log(`   Text: "${text}", Scale: ${textScale}, Depth: ${extrudeDepth}, Rotation: ${rotation}°`);
 
     // Generate shapes from font
     const shapes = font.generateShapes(text, 1);
@@ -88,19 +113,19 @@ export default function UVTextMapper({
     const edgeVertices = extractShapeEdges(shapes, textScale);
     console.log(`   Edge vertices for sides: ${edgeVertices.length} points`);
 
-    // Transform subdivided vertices to UV space
+    // Transform subdivided vertices to UV space (using rotated tangent)
     const uvVertices = subdivVertices.map(v => ({
-      u: uv.x + v.x * uvTangent.x + v.y * uvBitangent.x,
-      v: uv.y + v.x * uvTangent.y + v.y * uvBitangent.y
+      u: uv.x + v.x * rotatedTangent.x + v.y * uvBitangent.x,
+      v: uv.y + v.x * rotatedTangent.y + v.y * uvBitangent.y
     }));
 
     // Use subdivided indices
     const faceIndices = subdivIndices;
 
-    // Transform edge vertices to UV space
+    // Transform edge vertices to UV space (using rotated tangent)
     const uvEdgeVertices = edgeVertices.map(({ x, y, isGap }) => ({
-      u: uv.x + x * uvTangent.x + y * uvBitangent.x,
-      v: uv.y + x * uvTangent.y + y * uvBitangent.y,
+      u: uv.x + x * rotatedTangent.x + y * uvBitangent.x,
+      v: uv.y + x * rotatedTangent.y + y * uvBitangent.y,
       isGap
     }));
 
@@ -109,9 +134,21 @@ export default function UVTextMapper({
     const { vertices3D: edgeVertices3D, normals3D: edgeNormals3D } = mapUVVerticesToMesh(uvEdgeVertices, meshRef);
 
     const faceMappedCount = faceVertices3D.filter(v => v).length;
+    // For edge vertices, count only non-gap vertices
+    const nonGapEdgeCount = uvEdgeVertices.filter(v => !v.isGap).length;
     const edgeMappedCount = edgeVertices3D.filter(v => v).length;
     console.log(`   Mapped ${faceMappedCount}/${uvVertices.length} face vertices`);
-    console.log(`   Mapped ${edgeMappedCount}/${uvEdgeVertices.length} edge vertices`);
+    console.log(`   Mapped ${edgeMappedCount}/${nonGapEdgeCount} edge vertices (excluding gaps)`);
+
+    // Check if any vertices are out of UV bounds (not mapped)
+    const unmappedFaceCount = uvVertices.length - faceMappedCount;
+    const unmappedEdgeCount = nonGapEdgeCount - edgeMappedCount;
+    const hasUnmappedVertices = unmappedFaceCount > 0 || unmappedEdgeCount > 0;
+    
+    if (hasUnmappedVertices) {
+      console.warn(`⚠️ Text has ${unmappedFaceCount + unmappedEdgeCount} vertices outside UV bounds!`);
+      return { isOutOfBounds: true, unmappedCount: unmappedFaceCount + unmappedEdgeCount };
+    }
 
     // Build combined 3D geometry
     const positions = [];
@@ -226,20 +263,35 @@ export default function UVTextMapper({
 
     return { uvVertices, vertices3D: faceVertices3D, triangles, geometry };
 
-  }, [font, clickData, meshRef, text, textScale, extrudeDepth, maxTriangleSize]);
+  }, [font, clickData, meshRef, text, textScale, extrudeDepth, rotation, maxTriangleSize]);
 
-  // Notify parent
+  // Notify parent about out of bounds or successful generation
   useEffect(() => {
-    if (textMeshData && onTextDataReady) {
-      onTextDataReady(textMeshData);
+    if (textMeshData) {
+      if (textMeshData.isOutOfBounds) {
+        // Notify parent about out of bounds
+        if (onOutOfBounds) {
+          onOutOfBounds(true, textMeshData.unmappedCount);
+        }
+      } else {
+        // Clear any previous out of bounds warning
+        if (onOutOfBounds) {
+          onOutOfBounds(false, 0);
+        }
+        // Notify about successful geometry
+        if (onTextDataReady) {
+          onTextDataReady(textMeshData);
+        }
+      }
     }
-  }, [textMeshData, onTextDataReady]);
+  }, [textMeshData, onTextDataReady, onOutOfBounds]);
 
-  if (!textMeshData || !textMeshData.geometry) return null;
+  // Don't render if out of bounds or no geometry
+  if (!textMeshData || textMeshData.isOutOfBounds || !textMeshData.geometry) return null;
 
   return (
     <mesh geometry={textMeshData.geometry}>
-      <meshStandardMaterial color="#ff6600" side={THREE.DoubleSide} />
+      <meshStandardMaterial color="#ffffffff" side={THREE.DoubleSide} />
     </mesh>
   );
 }
@@ -400,7 +452,9 @@ function mapUVVerticesToMesh(uvVertices, meshRef) {
 
         const bary = computeBarycentricFast(uvPoint.u, uvPoint.v, u0, v0, u1, v1, u2, v2);
         
-        if (bary && bary.a >= -0.001 && bary.b >= -0.001 && bary.c >= -0.001) {
+        // Use a small tolerance to handle edge cases at UV seams
+        const tolerance = -0.01;
+        if (bary && bary.a >= tolerance && bary.b >= tolerance && bary.c >= tolerance) {
           const px = meshPosAttr.getX(i0) * bary.a + meshPosAttr.getX(i1) * bary.b + meshPosAttr.getX(i2) * bary.c;
           const py = meshPosAttr.getY(i0) * bary.a + meshPosAttr.getY(i1) * bary.b + meshPosAttr.getY(i2) * bary.c;
           const pz = meshPosAttr.getZ(i0) * bary.a + meshPosAttr.getZ(i1) * bary.b + meshPosAttr.getZ(i2) * bary.c;

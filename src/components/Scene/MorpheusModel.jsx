@@ -5,10 +5,11 @@ import * as THREE from 'three';
 
 const MORPHEUS_SCALE = 1;
 
-const MorpheusModel = forwardRef(({ visible = true, onUVDataReady }, ref) => {
+const MorpheusModel = forwardRef(({ visible = true, onUVDataReady, onModelReady }, ref) => {
   const obj = useLoader(OBJLoader, './Morpheus_uv.obj');
   const groupRef = useRef();
   const [model, setModel] = useState(null);
+  const originalGeometryRef = useRef(null);
 
   useEffect(() => {
     if (!obj) return;
@@ -30,6 +31,12 @@ const MorpheusModel = forwardRef(({ visible = true, onUVDataReady }, ref) => {
           roughness: 0.6,
         });
         child.material.side = THREE.DoubleSide;
+        
+        // Store original geometry (first mesh only)
+        if (!originalGeometryRef.current) {
+          originalGeometryRef.current = child.geometry.clone();
+          console.log('💾 Original geometry stored in MorpheusModel:', originalGeometryRef.current.attributes.position.count, 'vertices');
+        }
         
         // Extract UV and position data
         const geometry = child.geometry;
@@ -96,11 +103,16 @@ const MorpheusModel = forwardRef(({ visible = true, onUVDataReady }, ref) => {
       });
     }
 
-    setModel(clonedObj);
-  }, [obj, onUVDataReady]);
+    // Notify parent about model ready with original geometry
+    if (onModelReady && originalGeometryRef.current) {
+      onModelReady(originalGeometryRef.current.clone());
+    }
 
-  // Expose the group ref to parent
-  useImperativeHandle(ref, () => groupRef.current);
+    setModel(clonedObj);
+  }, [obj, onUVDataReady, onModelReady]);
+
+  // Simply forward the ref to groupRef
+  useImperativeHandle(ref, () => groupRef.current, [model]);
 
   if (!model) return null;
 
