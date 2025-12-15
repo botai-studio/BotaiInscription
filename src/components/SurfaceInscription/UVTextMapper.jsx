@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, useRef } from 'react';
 import * as THREE from 'three';
 import { FontLoader } from 'three/examples/jsm/loaders/FontLoader';
 
@@ -6,6 +6,9 @@ import { FontLoader } from 'three/examples/jsm/loaders/FontLoader';
 const DEFAULT_FONTS = [
   { id: 'helvetiker', name: 'Helvetica', url: 'https://threejs.org/examples/fonts/helvetiker_regular.typeface.json' }
 ];
+
+// Global cache for UV grids per mesh
+const uvGridCache = new WeakMap();
 
 /**
  * UVTextMapper - Creates extruded text in UV space and maps to 3D surface
@@ -43,9 +46,26 @@ export default function UVTextMapper({
     });
   }, [fontId, availableFonts, loadedFontId, font]);
 
+  // Cache UV grid for mesh (only rebuild if mesh changes)
+  const uvGridData = useMemo(() => {
+    if (!meshRef?.current) return null;
+    
+    // Check cache first
+    if (uvGridCache.has(meshRef.current)) {
+      return uvGridCache.get(meshRef.current);
+    }
+    
+    // Build and cache
+    console.log('🔧 Building UV grid index...');
+    const gridData = buildUVGrid(meshRef);
+    uvGridCache.set(meshRef.current, gridData);
+    console.log(`   Grid built with ${gridData.triangleData.length} triangles`);
+    return gridData;
+  }, [meshRef?.current]);
+
   // Generate extruded text mesh
   const textMeshData = useMemo(() => {
-    if (!font || !clickData || !clickData.uv || !clickData.uvTangent || !meshRef?.current) {
+    if (!font || !clickData || !clickData.uv || !clickData.uvTangent || !meshRef?.current || !uvGridData) {
       return null;
     }
 
@@ -129,9 +149,9 @@ export default function UVTextMapper({
       isGap
     }));
 
-    // Map UV vertices to 3D
-    const { vertices3D: faceVertices3D, normals3D: faceNormals3D } = mapUVVerticesToMesh(uvVertices, meshRef);
-    const { vertices3D: edgeVertices3D, normals3D: edgeNormals3D } = mapUVVerticesToMesh(uvEdgeVertices, meshRef);
+    // Map UV vertices to 3D using cached grid
+    const { vertices3D: faceVertices3D, normals3D: faceNormals3D } = mapUVVerticesToMeshFast(uvVertices, uvGridData);
+    const { vertices3D: edgeVertices3D, normals3D: edgeNormals3D } = mapUVVerticesToMeshFast(uvEdgeVertices, uvGridData);
 
     const faceMappedCount = faceVertices3D.filter(v => v).length;
     // For edge vertices, count only non-gap vertices
@@ -263,24 +283,35 @@ export default function UVTextMapper({
 
     return { uvVertices, vertices3D: faceVertices3D, triangles, geometry };
 
-  }, [font, clickData, meshRef, text, textScale, extrudeDepth, rotation, maxTriangleSize]);
+  }, [font, clickData, meshRef, text, textScale, extrudeDepth, rotation, maxTriangleSize, uvGridData]);
+
+  // Track last notification to prevent infinite loops from callback reference changes
+  const lastNotificationRef = useRef({ isOutOfBounds: null, geometryId: null });
 
   // Notify parent about out of bounds or successful generation
   useEffect(() => {
     if (textMeshData) {
+      const geometryId = textMeshData.geometry?.uuid;
+      const lastNotif = lastNotificationRef.current;
+      
       if (textMeshData.isOutOfBounds) {
-        // Notify parent about out of bounds
-        if (onOutOfBounds) {
-          onOutOfBounds(true, textMeshData.unmappedCount);
+        // Only notify if OOB status changed
+        if (lastNotif.isOutOfBounds !== true) {
+          lastNotificationRef.current = { isOutOfBounds: true, geometryId: null };
+          if (onOutOfBounds) {
+            onOutOfBounds(true, textMeshData.unmappedCount);
+          }
         }
       } else {
-        // Clear any previous out of bounds warning
-        if (onOutOfBounds) {
-          onOutOfBounds(false, 0);
-        }
-        // Notify about successful geometry
-        if (onTextDataReady) {
-          onTextDataReady(textMeshData);
+        // Only notify if we have a new geometry or OOB status changed
+        if (lastNotif.isOutOfBounds !== false || lastNotif.geometryId !== geometryId) {
+          lastNotificationRef.current = { isOutOfBounds: false, geometryId };
+          if (onOutOfBounds) {
+            onOutOfBounds(false, 0);
+          }
+          if (onTextDataReady) {
+            onTextDataReady(textMeshData);
+          }
         }
       }
     }
@@ -291,7 +322,7 @@ export default function UVTextMapper({
 
   return (
     <mesh geometry={textMeshData.geometry}>
-      <meshStandardMaterial color="#ffffffff" side={THREE.DoubleSide} />
+      <meshStandardMaterial color="#ffffff" side={THREE.DoubleSide} />
     </mesh>
   );
 }
@@ -420,12 +451,12 @@ function extractShapeEdges(shapes, scale) {
 }
 
 /**
- * Map UV vertices to 3D mesh positions and normals
+ * Build a spatial grid index for UV triangles for fast lookup
  */
-function mapUVVerticesToMesh(uvVertices, meshRef) {
-  const vertices3D = new Array(uvVertices.length).fill(null);
-  const normals3D = new Array(uvVertices.length).fill(null);
-
+function buildUVGrid(meshRef, gridSize = 32) {
+  const grid = {};
+  const triangleData = [];
+  
   meshRef.current.traverse((child) => {
     if (!child.isMesh) return;
     
@@ -440,42 +471,109 @@ function mapUVVerticesToMesh(uvVertices, meshRef) {
     const normalMatrix = new THREE.Matrix3().getNormalMatrix(worldMatrix);
     const triCount = meshPosAttr.count / 3;
 
-    uvVertices.forEach((uvPoint, idx) => {
-      if (vertices3D[idx] || uvPoint.isGap) return;
+    for (let t = 0; t < triCount; t++) {
+      const i0 = t * 3, i1 = t * 3 + 1, i2 = t * 3 + 2;
 
-      for (let t = 0; t < triCount; t++) {
-        const i0 = t * 3, i1 = t * 3 + 1, i2 = t * 3 + 2;
+      const u0 = meshUVAttr.getX(i0), v0 = meshUVAttr.getY(i0);
+      const u1 = meshUVAttr.getX(i1), v1 = meshUVAttr.getY(i1);
+      const u2 = meshUVAttr.getX(i2), v2 = meshUVAttr.getY(i2);
 
-        const u0 = meshUVAttr.getX(i0), v0 = meshUVAttr.getY(i0);
-        const u1 = meshUVAttr.getX(i1), v1 = meshUVAttr.getY(i1);
-        const u2 = meshUVAttr.getX(i2), v2 = meshUVAttr.getY(i2);
+      // Store triangle data
+      const triIdx = triangleData.length;
+      triangleData.push({
+        uv: [u0, v0, u1, v1, u2, v2],
+        pos: [
+          meshPosAttr.getX(i0), meshPosAttr.getY(i0), meshPosAttr.getZ(i0),
+          meshPosAttr.getX(i1), meshPosAttr.getY(i1), meshPosAttr.getZ(i1),
+          meshPosAttr.getX(i2), meshPosAttr.getY(i2), meshPosAttr.getZ(i2)
+        ],
+        normal: meshNormalAttr ? [
+          meshNormalAttr.getX(i0), meshNormalAttr.getY(i0), meshNormalAttr.getZ(i0),
+          meshNormalAttr.getX(i1), meshNormalAttr.getY(i1), meshNormalAttr.getZ(i1),
+          meshNormalAttr.getX(i2), meshNormalAttr.getY(i2), meshNormalAttr.getZ(i2)
+        ] : null,
+        worldMatrix,
+        normalMatrix
+      });
 
-        const bary = computeBarycentricFast(uvPoint.u, uvPoint.v, u0, v0, u1, v1, u2, v2);
-        
-        // Use a small tolerance to handle edge cases at UV seams
-        const tolerance = -0.01;
-        if (bary && bary.a >= tolerance && bary.b >= tolerance && bary.c >= tolerance) {
-          const px = meshPosAttr.getX(i0) * bary.a + meshPosAttr.getX(i1) * bary.b + meshPosAttr.getX(i2) * bary.c;
-          const py = meshPosAttr.getY(i0) * bary.a + meshPosAttr.getY(i1) * bary.b + meshPosAttr.getY(i2) * bary.c;
-          const pz = meshPosAttr.getZ(i0) * bary.a + meshPosAttr.getZ(i1) * bary.b + meshPosAttr.getZ(i2) * bary.c;
+      // Calculate UV bounding box
+      const minU = Math.min(u0, u1, u2);
+      const maxU = Math.max(u0, u1, u2);
+      const minV = Math.min(v0, v1, v2);
+      const maxV = Math.max(v0, v1, v2);
 
-          const pos3D = new THREE.Vector3(px, py, pz);
-          pos3D.applyMatrix4(worldMatrix);
-          vertices3D[idx] = pos3D;
+      // Add to grid cells that this triangle overlaps
+      const cellMinX = Math.floor(minU * gridSize);
+      const cellMaxX = Math.floor(maxU * gridSize);
+      const cellMinY = Math.floor(minV * gridSize);
+      const cellMaxY = Math.floor(maxV * gridSize);
 
-          if (meshNormalAttr) {
-            const nx = meshNormalAttr.getX(i0) * bary.a + meshNormalAttr.getX(i1) * bary.b + meshNormalAttr.getX(i2) * bary.c;
-            const ny = meshNormalAttr.getY(i0) * bary.a + meshNormalAttr.getY(i1) * bary.b + meshNormalAttr.getY(i2) * bary.c;
-            const nz = meshNormalAttr.getZ(i0) * bary.a + meshNormalAttr.getZ(i1) * bary.b + meshNormalAttr.getZ(i2) * bary.c;
-            
-            const normal = new THREE.Vector3(nx, ny, nz);
-            normal.applyMatrix3(normalMatrix).normalize();
-            normals3D[idx] = normal;
-          }
-          return;
+      for (let cx = cellMinX; cx <= cellMaxX; cx++) {
+        for (let cy = cellMinY; cy <= cellMaxY; cy++) {
+          const key = `${cx},${cy}`;
+          if (!grid[key]) grid[key] = [];
+          grid[key].push(triIdx);
         }
       }
-    });
+    }
+  });
+
+  return { grid, triangleData, gridSize };
+}
+
+/**
+ * Map UV vertices to 3D mesh positions and normals using pre-built spatial grid
+ */
+function mapUVVerticesToMeshFast(uvVertices, uvGridData) {
+  const vertices3D = new Array(uvVertices.length).fill(null);
+  const normals3D = new Array(uvVertices.length).fill(null);
+
+  if (!uvGridData) return { vertices3D, normals3D };
+
+  const { grid, triangleData, gridSize } = uvGridData;
+
+  uvVertices.forEach((uvPoint, idx) => {
+    if (uvPoint.isGap) return;
+
+    // Find grid cell for this UV point
+    const cellX = Math.floor(uvPoint.u * gridSize);
+    const cellY = Math.floor(uvPoint.v * gridSize);
+    const key = `${cellX},${cellY}`;
+    
+    // Get candidate triangles from grid
+    const candidates = grid[key] || [];
+    
+    for (const triIdx of candidates) {
+      const tri = triangleData[triIdx];
+      const [u0, v0, u1, v1, u2, v2] = tri.uv;
+
+      const bary = computeBarycentricFast(uvPoint.u, uvPoint.v, u0, v0, u1, v1, u2, v2);
+      
+      const tolerance = -0.01;
+      if (bary && bary.a >= tolerance && bary.b >= tolerance && bary.c >= tolerance) {
+        const [px0, py0, pz0, px1, py1, pz1, px2, py2, pz2] = tri.pos;
+        
+        const px = px0 * bary.a + px1 * bary.b + px2 * bary.c;
+        const py = py0 * bary.a + py1 * bary.b + py2 * bary.c;
+        const pz = pz0 * bary.a + pz1 * bary.b + pz2 * bary.c;
+
+        const pos3D = new THREE.Vector3(px, py, pz);
+        pos3D.applyMatrix4(tri.worldMatrix);
+        vertices3D[idx] = pos3D;
+
+        if (tri.normal) {
+          const [nx0, ny0, nz0, nx1, ny1, nz1, nx2, ny2, nz2] = tri.normal;
+          const nx = nx0 * bary.a + nx1 * bary.b + nx2 * bary.c;
+          const ny = ny0 * bary.a + ny1 * bary.b + ny2 * bary.c;
+          const nz = nz0 * bary.a + nz1 * bary.b + nz2 * bary.c;
+          
+          const normal = new THREE.Vector3(nx, ny, nz);
+          normal.applyMatrix3(tri.normalMatrix).normalize();
+          normals3D[idx] = normal;
+        }
+        break;
+      }
+    }
   });
 
   return { vertices3D, normals3D };

@@ -1,6 +1,73 @@
 import * as THREE from 'three';
-import { SUBTRACTION, Brush, Evaluator } from 'three-bvh-csg';
+import { SUBTRACTION, ADDITION, Brush, Evaluator } from 'three-bvh-csg';
 import { mergeVertices } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
+import { SimplifyModifier } from 'three/examples/jsm/modifiers/SimplifyModifier.js';
+
+/**
+ * Simplify geometry by collapsing edges in planar areas while preserving sharp features
+ * 
+ * @param {THREE.BufferGeometry} geometry - The geometry to simplify
+ * @param {number} targetReduction - Target reduction ratio (0.3 = keep 30% of triangles)
+ * @returns {THREE.BufferGeometry} Simplified geometry
+ */
+export function simplifyGeometry(geometry, targetReduction = 0.5) {
+  if (!geometry || !geometry.attributes.position) {
+    return geometry;
+  }
+
+  console.log('🔧 Simplifying geometry...');
+  
+  // First merge very close vertices
+  let simplified = mergeVertices(geometry.clone(), 0.0001);
+  
+  // Ensure we have index
+  if (!simplified.index) {
+    const posCount = simplified.attributes.position.count;
+    const indices = [];
+    for (let i = 0; i < posCount; i++) {
+      indices.push(i);
+    }
+    simplified.setIndex(indices);
+  }
+  
+  const startTriangles = simplified.index.count / 3;
+  console.log(`   Start: ${startTriangles} triangles`);
+  
+  // Calculate target triangle count
+  const targetCount = Math.floor(startTriangles * targetReduction);
+  
+  if (targetCount >= startTriangles) {
+    console.log('   No simplification needed');
+    return simplified;
+  }
+  
+  try {
+    // Use Three.js SimplifyModifier
+    const modifier = new SimplifyModifier();
+    
+    // SimplifyModifier takes the number of vertices to REMOVE
+    const verticesToRemove = simplified.attributes.position.count - Math.floor(simplified.attributes.position.count * targetReduction);
+    
+    if (verticesToRemove > 0) {
+      simplified = modifier.modify(simplified, verticesToRemove);
+    }
+    
+    const endTriangles = simplified.index ? simplified.index.count / 3 : simplified.attributes.position.count / 3;
+    console.log(`   End: ${endTriangles} triangles`);
+    console.log(`   Reduction: ${((1 - endTriangles / startTriangles) * 100).toFixed(1)}%`);
+  } catch (error) {
+    console.warn('⚠️ Simplification failed, using original:', error.message);
+    return mergeVertices(geometry.clone(), 0.0001);
+  }
+  
+  // Recompute normals
+  if (simplified.attributes.normal) {
+    simplified.deleteAttribute('normal');
+  }
+  simplified.computeVertexNormals();
+
+  return simplified;
+}
 
 /**
  * Subtract one geometry from another using CSG (three-bvh-csg)
@@ -50,6 +117,70 @@ export function subtractGeometry(baseGeometry, toolGeometry) {
   
   // Merge duplicate vertices
   resultGeometry = mergeVertices(resultGeometry, 0.0001);
+  
+  // Recompute normals
+  resultGeometry.deleteAttribute('normal');
+  resultGeometry.computeVertexNormals();
+
+  console.log(`   Result: ${resultGeometry.attributes.position.count} vertices`);
+
+  return resultGeometry;
+}
+
+/**
+ * Union two geometries using CSG (three-bvh-csg)
+ * 
+ * @param {THREE.BufferGeometry} geometryA - The first geometry
+ * @param {THREE.BufferGeometry} geometryB - The second geometry to union
+ * @param {boolean} simplify - Whether to simplify the result (default true)
+ * @returns {THREE.BufferGeometry} The resulting geometry after union
+ */
+export function unionGeometry(geometryA, geometryB, simplify = true) {
+  if (!geometryA || !geometryB) {
+    console.error('⚠️ unionGeometry: Missing geometry');
+    return geometryA || geometryB;
+  }
+
+  console.log('🔗 Starting CSG union...');
+  console.log(`   A: ${geometryA.attributes.position.count} vertices`);
+  console.log(`   B: ${geometryB.attributes.position.count} vertices`);
+
+  // Prepare geometries for CSG
+  const cloneA = prepareGeometryForCSG(geometryA);
+  const cloneB = prepareGeometryForCSG(geometryB);
+
+  // Create brushes
+  const brushA = new Brush(cloneA);
+  brushA.updateMatrixWorld();
+
+  const brushB = new Brush(cloneB);
+  brushB.updateMatrixWorld();
+
+  console.log('✅ CSG Brushes created');
+
+  // Perform union
+  const evaluator = new Evaluator();
+  
+  let resultBrush;
+  try {
+    resultBrush = evaluator.evaluate(brushA, brushB, ADDITION);
+  } catch (error) {
+    console.error('❌ CSG Union failed:', error);
+    return geometryA;
+  }
+
+  console.log('✅ CSG Union complete');
+
+  // Clean up and optimize result
+  let resultGeometry = resultBrush.geometry;
+  
+  // Merge duplicate vertices
+  resultGeometry = mergeVertices(resultGeometry, 0.0001);
+  
+  // Apply simplification if requested (keep ~70% of triangles)
+  if (simplify) {
+    resultGeometry = simplifyGeometry(resultGeometry, 0.7);
+  }
   
   // Recompute normals
   resultGeometry.deleteAttribute('normal');

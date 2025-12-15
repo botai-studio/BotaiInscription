@@ -1,13 +1,92 @@
-import React, { useState } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 
-// Available fonts
+// Available fonts (Three.js built-in + Google Fonts via @compai)
 const AVAILABLE_FONTS = [
+  // Three.js built-in fonts
   { id: 'helvetiker', name: 'Helvetica' },
-  { id: 'gentilis', name: 'Garamond' },
   { id: 'optimer', name: 'Optimer' },
-  { id: 'droid_sans', name: 'Droid Sans' },
-  { id: 'droid_serif', name: 'Droid Serif' }
+  { id: 'gentilis', name: 'Gentilis' },
+  // Google Fonts via @compai
+  { id: 'roboto', name: 'Roboto' },
+  { id: 'open-sans', name: 'Open Sans' },
+  { id: 'merriweather', name: 'Merriweather' }
 ];
+
+/**
+ * TextInput - Input that only updates parent on blur or Enter
+ */
+function DeferredTextInput({ value, onChange, ...props }) {
+  const [localValue, setLocalValue] = useState(value);
+  const [isFocused, setIsFocused] = useState(false);
+  const inputRef = useRef(null);
+  
+  // Sync local value when external value changes (e.g., switching inscriptions)
+  useEffect(() => {
+    setLocalValue(value);
+  }, [value]);
+  
+  const hasChanges = localValue !== value;
+  
+  const handleConfirm = () => {
+    if (hasChanges) {
+      onChange(localValue);
+    }
+    setIsFocused(false);
+    inputRef.current?.blur();
+  };
+  
+  const handleBlur = (e) => {
+    // Don't trigger blur if clicking the confirm button
+    if (e.relatedTarget?.classList?.contains('text-confirm-btn')) {
+      return;
+    }
+    if (hasChanges) {
+      onChange(localValue);
+    }
+    setIsFocused(false);
+  };
+  
+  const handleKeyDown = (e) => {
+    if (e.key === 'Enter') {
+      handleConfirm();
+    }
+  };
+  
+  return (
+    <div style={{ display: 'flex', gap: '4px', alignItems: 'center' }}>
+      <input
+        {...props}
+        ref={inputRef}
+        value={localValue}
+        onChange={(e) => setLocalValue(e.target.value)}
+        onFocus={() => setIsFocused(true)}
+        onBlur={handleBlur}
+        onKeyDown={handleKeyDown}
+        style={{ flex: 1 }}
+      />
+      {(isFocused || hasChanges) && (
+        <button
+          className="text-confirm-btn"
+          onClick={handleConfirm}
+          title="Confirm text"
+          style={{
+            padding: '4px 8px',
+            background: hasChanges ? '#000' : '#ccc',
+            color: '#fff',
+            border: 'none',
+            borderRadius: '4px',
+            cursor: 'pointer',
+            fontSize: '14px',
+            fontWeight: 'bold',
+            minWidth: '28px'
+          }}
+        >
+          ✓
+        </button>
+      )}
+    </div>
+  );
+}
 
 /**
  * ControlPanel - Left sidebar for inscription controls
@@ -33,14 +112,19 @@ export default function ControlPanel({
   setShowUVPanel,
   showClipModel,
   setShowClipModel,
+  maxTriangleEdge,
+  setMaxTriangleEdge,
   onDownloadSTL,
+  onDownloadJSON,
+  onLoadJSON,
   email,
   setEmail,
   onOrder,
-  isOrdering
+  isOrdering,
+  devMode = false
 }) {
-  const [instructionsCollapsed, setInstructionsCollapsed] = useState(false);
   const [settingsCollapsed, setSettingsCollapsed] = useState(true);
+  const fileInputRef = useRef(null);
   const hasPlacedInscriptions = inscriptions.some(i => i.clickData);
   
   // Check if any inscription has out of bounds warning
@@ -48,17 +132,19 @@ export default function ControlPanel({
 
   return (
     <div className="control-panel">
-      {/* Logo */}
-      <div style={{ marginBottom: '16px' }}>
+      {/* Logo - hidden on mobile */}
+      <div className="logo-container">
         <img src="./Botai_Logo.svg" alt="Botai" style={{ width: '100px' }} />
       </div>
 
-      {/* Inscription Cards Section */}
-      <div>
-        <p className="section-title">Inscriptions</p>
-        
-        {/* Inscription Cards */}
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
+      {/* Scrollable Content Area */}
+      <div className="control-panel-scroll">
+        {/* Inscription Cards Section */}
+        <div>
+          <p className="section-title"><b>Botai</b> Inscriptions</p>
+          
+          {/* Inscription Cards */}
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
           {inscriptions.map((inscription, index) => (
             <div
               key={inscription.id}
@@ -83,10 +169,10 @@ export default function ControlPanel({
               
               {/* Text Input */}
               <div style={{ marginBottom: '8px' }}>
-                <input
+                <DeferredTextInput
                   type="text"
                   value={inscription.text}
-                  onChange={(e) => updateInscription(inscription.id, { text: e.target.value })}
+                  onChange={(newText) => updateInscription(inscription.id, { text: newText })}
                   onClick={(e) => e.stopPropagation()}
                   placeholder="Enter text"
                   maxLength="30"
@@ -102,8 +188,8 @@ export default function ControlPanel({
                 </label>
                 <input
                   type="range"
-                  min="0.005"
-                  max="0.03"
+                  min="0.01"
+                  max="0.05"
                   step="0.001"
                   value={inscription.scale}
                   onChange={(e) => updateInscription(inscription.id, { scale: parseFloat(e.target.value) })}
@@ -138,8 +224,8 @@ export default function ControlPanel({
                 </label>
                 <input
                   type="range"
-                  min="0"
-                  max="360"
+                  min="-180"
+                  max="180"
                   step="1"
                   value={inscription.rotation}
                   onChange={(e) => updateInscription(inscription.id, { rotation: parseFloat(e.target.value) })}
@@ -163,8 +249,8 @@ export default function ControlPanel({
                 </select>
               </div>
               
-              {/* Position Info (if placed) */}
-              {inscription.clickData && (
+              {/* Position Info (if placed) - only in dev mode */}
+              {devMode && inscription.clickData && (
                 <div className="inscription-card__uv-info">
                   UV: ({inscription.clickData.uv.x.toFixed(3)}, {inscription.clickData.uv.y.toFixed(3)})
                 </div>
@@ -183,7 +269,7 @@ export default function ControlPanel({
           
           {/* Add New Inscription Card */}
           {!isCarved && (
-            <div onClick={addInscription} className="add-card">
+            <div onClick={addInscription} className="add-card add-inscription-btn">
               <span className="add-card__icon">+</span>
             </div>
           )}
@@ -195,7 +281,7 @@ export default function ControlPanel({
         <button
           onClick={onApplyInscriptions}
           disabled={!hasPlacedInscriptions || isCarved || hasAnyWarning}
-          className="btn btn--primary"
+          className="btn btn--primary inscribe-btn"
         >
           Inscribe
         </button>
@@ -204,93 +290,115 @@ export default function ControlPanel({
           ↺ Reset
         </button>
         
-        <button 
-          onClick={onDownloadSTL} 
-          className="btn btn--secondary"
-          title="Download the current model as STL file"
-        >
-          📥 Download STL
-        </button>
-      </div>
-
-      <div> </div>
-
-      {/* Instructions */}
-      <div className={`collapsible ${instructionsCollapsed ? 'collapsible--collapsed' : ''}`}>
-        <div 
-          className="collapsible__header"
-          onClick={() => setInstructionsCollapsed(!instructionsCollapsed)}
-        >
-          <span>Instructions</span>
-          <span className="collapsible__icon">{instructionsCollapsed ? '+' : '−'}</span>
-        </div>
-        {!instructionsCollapsed && (
-          <div className="collapsible__content">
-            <p>
-              1. Select an inscription card<br/>
-              2. Click on the model to place text<br/>
-              3. Adjust text, scale, rotation, depth<br/>
-              4. Click "Inscribe" to carve
-            </p>
-          </div>
+        {devMode && (
+          <>
+            <button 
+              onClick={onDownloadSTL} 
+              className="btn btn--secondary"
+              title="Download the current model as STL file"
+            >
+              📥 Download STL
+            </button>
+            <button 
+              onClick={onDownloadJSON} 
+              className="btn btn--secondary"
+              title="Download inscription settings as JSON"
+            >
+              📄 Download JSON
+            </button>
+            <input
+              type="file"
+              accept=".json"
+              ref={fileInputRef}
+              style={{ display: 'none' }}
+              onChange={onLoadJSON}
+            />
+            <button 
+              onClick={() => fileInputRef.current?.click()} 
+              className="btn btn--secondary"
+              title="Load inscription settings from JSON"
+            >
+              📂 Load JSON
+            </button>
+          </>
         )}
       </div>
 
-
-      {/* Display Settings */}
-      <div className={`collapsible ${settingsCollapsed ? 'collapsible--collapsed' : ''}`}>
-        <div 
-          className="collapsible__header"
-          onClick={() => setSettingsCollapsed(!settingsCollapsed)}
-        >
-          <span>Display Settings</span>
-          <span className="collapsible__icon">{settingsCollapsed ? '+' : '−'}</span>
-        </div>
-        {!settingsCollapsed && (
-          <div className="collapsible__content">
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={showMarker}
-                onChange={(e) => setShowMarker(e.target.checked)}
-              />
-              <span>Show Click Points</span>
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={showArrows}
-                onChange={(e) => setShowArrows(e.target.checked)}
-              />
-              <span>Show Arrows</span>
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={showTextMesh}
-                onChange={(e) => setShowTextMesh(e.target.checked)}
-              />
-              <span>Show Text Meshes</span>
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={showUVPanel}
-                onChange={(e) => setShowUVPanel(e.target.checked)}
-              />
-              <span>Show UV Panel</span>
-            </label>
-            <label className="checkbox-label">
-              <input
-                type="checkbox"
-                checked={showClipModel}
-                onChange={(e) => setShowClipModel(e.target.checked)}
-              />
-              <span>Show Clip Model</span>
-            </label>
+      {/* Display Settings - only in dev mode */}
+      {devMode && (
+        <div className={`collapsible ${settingsCollapsed ? 'collapsible--collapsed' : ''}`}>
+          <div 
+            className="collapsible__header"
+            onClick={() => setSettingsCollapsed(!settingsCollapsed)}
+          >
+            <span>Display Settings</span>
+            <span className="collapsible__icon">{settingsCollapsed ? '+' : '−'}</span>
           </div>
-        )}
-      </div>
+          {!settingsCollapsed && (
+            <div className="collapsible__content">
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showMarker}
+                  onChange={(e) => setShowMarker(e.target.checked)}
+                />
+                <span>Show Click Points</span>
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showArrows}
+                  onChange={(e) => setShowArrows(e.target.checked)}
+                />
+                <span>Show Arrows</span>
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showTextMesh}
+                  onChange={(e) => setShowTextMesh(e.target.checked)}
+                />
+                <span>Show Text Meshes</span>
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showUVPanel}
+                  onChange={(e) => setShowUVPanel(e.target.checked)}
+                />
+                <span>Show UV Panel</span>
+              </label>
+              <label className="checkbox-label">
+                <input
+                  type="checkbox"
+                  checked={showClipModel}
+                  onChange={(e) => setShowClipModel(e.target.checked)}
+                />
+                <span>Show Clip Model</span>
+              </label>
+              
+              {/* Max Triangle Edge Slider */}
+              <div style={{ marginTop: '12px' }}>
+                <label className="slider-label">
+                  <span>Max Triangle Edge: {maxTriangleEdge.toFixed(2)}</span>
+                  <input
+                    type="range"
+                    min="0.05"
+                    max="2.0"
+                    step="0.05"
+                    value={maxTriangleEdge}
+                    onChange={(e) => setMaxTriangleEdge(parseFloat(e.target.value))}
+                    style={{ width: '100%', marginTop: '4px' }}
+                  />
+                </label>
+                <div style={{ fontSize: '10px', color: '#888', marginTop: '2px' }}>
+                  Lower = more subdivisions, smoother curves
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Status */}
       {isCarved && (
@@ -299,35 +407,66 @@ export default function ControlPanel({
         </div>
       )}
 
-      {/* Spacer */}
-      <div style={{ flex: 1 }}></div>
+      {/* Order Section - Mobile (inside scroll) */}
+      <div className="order-section order-section--mobile">
+        {/* Email Input */}
+        <div className="control-group">
+          <label style={{ fontSize: '12px', fontWeight: '600' }}>Email Address:</label>
+          <input
+            type="email"
+            placeholder="your@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="email-input"
+          />
+        </div>
 
-      {/* Email Input */}
-      <div className="control-group" style={{ marginTop: '20px' }}>
-        <label style={{ fontSize: '12px', fontWeight: '600' }}>Email Address:</label>
-        <input
-          type="email"
-          placeholder="your@email.com"
-          value={email}
-          onChange={(e) => setEmail(e.target.value)}
-          className="email-input"
-        />
+        {/* Price Display */}
+        <div className="price-display">
+          <h2>${88 + inscriptions.reduce((sum, i) => sum + (i.text?.length || 0), 0)}</h2>
+          <p className="price-note">$88 base + $1 per character ({inscriptions.reduce((sum, i) => sum + (i.text?.length || 0), 0)} chars)</p>
+        </div>
+
+        {/* Order Button */}
+        <button
+          className="order-button"
+          onClick={onOrder}
+          disabled={isOrdering || !email}
+        >
+          {isOrdering ? 'Processing...' : 'Order Now'}
+        </button>
       </div>
+      </div>{/* End Scrollable Content Area */}
 
-      {/* Price Display */}
-      <div className="price-display">
-        <h2>$58</h2>
-        <p className="price-note">Base price for custom inscription</p>
+      {/* Order Section - Desktop (fixed bottom) */}
+      <div className="order-section order-section--desktop" id="order-section">
+        {/* Email Input */}
+        <div className="control-group">
+          <label style={{ fontSize: '12px', fontWeight: '600' }}>Email Address:</label>
+          <input
+            type="email"
+            placeholder="your@email.com"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            className="email-input"
+          />
+        </div>
+
+        {/* Price Display */}
+        <div className="price-display">
+          <h2>${88 + inscriptions.reduce((sum, i) => sum + (i.text?.length || 0), 0)}</h2>
+          <p className="price-note">$88 base + $1 per character ({inscriptions.reduce((sum, i) => sum + (i.text?.length || 0), 0)} chars)</p>
+        </div>
+
+        {/* Order Button */}
+        <button
+          className="order-button"
+          onClick={onOrder}
+          disabled={isOrdering || !email}
+        >
+          {isOrdering ? 'Processing...' : 'Order Now'}
+        </button>
       </div>
-
-      {/* Order Button */}
-      <button
-        className="order-button"
-        onClick={onOrder}
-        disabled={isOrdering || !email}
-      >
-        {isOrdering ? 'Processing...' : 'Order Now'}
-      </button>
     </div>
   );
 }

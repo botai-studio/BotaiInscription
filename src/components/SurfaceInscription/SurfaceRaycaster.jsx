@@ -1,15 +1,63 @@
-import React, { useEffect, useMemo } from 'react';
-import { useThree } from '@react-three/fiber';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { useThree, useFrame } from '@react-three/fiber';
 import * as THREE from 'three';
 
 /**
  * SurfaceRaycaster - Handles click detection on 3D mesh surface
  * Returns: point, normal, tangent, bitangent, UV coordinates, UV tangent, and face info
+ * Only triggers on true clicks (mouse down and up at same position), not after dragging/rotating
+ * Also shows hover preview dot when mouse is over the model
  */
-export default function SurfaceRaycaster({ meshRef, onSurfaceClick, enabled = true }) {
+export default function SurfaceRaycaster({ meshRef, onSurfaceClick, onHover, enabled = true }) {
   const { camera, gl, scene } = useThree();
   const raycaster = useMemo(() => new THREE.Raycaster(), []);
   const mouse = useMemo(() => new THREE.Vector2(), []);
+  const currentMouse = useRef({ x: 0, y: 0 });
+  
+  // Track mouse down position to detect drag vs click
+  const mouseDownPos = useRef({ x: 0, y: 0 });
+  const isDragging = useRef(false);
+  const isMouseDown = useRef(false);
+  const DRAG_THRESHOLD = 5; // pixels - if mouse moves more than this, it's a drag
+
+  // Update hover position each frame
+  useFrame(() => {
+    if (!enabled || !onHover || isMouseDown.current) {
+      return;
+    }
+
+    // Get canvas bounds
+    const rect = gl.domElement.getBoundingClientRect();
+    
+    // Calculate normalized device coordinates
+    mouse.x = ((currentMouse.current.x - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((currentMouse.current.y - rect.top) / rect.height) * 2 + 1;
+
+    // Update raycaster
+    raycaster.setFromCamera(mouse, camera);
+
+    // Find intersections with the mesh
+    let intersects = [];
+    
+    if (meshRef && meshRef.current) {
+      intersects = raycaster.intersectObject(meshRef.current, true);
+    }
+
+    // Filter to only mesh objects
+    const meshIntersects = intersects.filter(i => i.object.isMesh);
+
+    if (meshIntersects.length > 0) {
+      const hit = meshIntersects[0];
+      const point = hit.point.clone();
+      const normal = hit.face.normal.clone();
+      const normalMatrix = new THREE.Matrix3().getNormalMatrix(hit.object.matrixWorld);
+      normal.applyMatrix3(normalMatrix).normalize();
+      
+      onHover({ point, normal });
+    } else {
+      onHover(null);
+    }
+  });
 
   useEffect(() => {
     if (!enabled) return;
@@ -32,7 +80,33 @@ export default function SurfaceRaycaster({ meshRef, onSurfaceClick, enabled = tr
       return null;
     };
 
-    const handleClick = (event) => {
+    const handleMouseDown = (event) => {
+      mouseDownPos.current = { x: event.clientX, y: event.clientY };
+      isDragging.current = false;
+      isMouseDown.current = true;
+    };
+
+    const handleMouseMove = (event) => {
+      currentMouse.current = { x: event.clientX, y: event.clientY };
+      
+      // Check if mouse has moved beyond threshold
+      if (isMouseDown.current) {
+        const dx = event.clientX - mouseDownPos.current.x;
+        const dy = event.clientY - mouseDownPos.current.y;
+        if (Math.sqrt(dx * dx + dy * dy) > DRAG_THRESHOLD) {
+          isDragging.current = true;
+        }
+      }
+    };
+
+    const handleMouseUp = (event) => {
+      isMouseDown.current = false;
+      
+      // Only process as click if we didn't drag
+      if (isDragging.current) {
+        return;
+      }
+
       // Get canvas bounds
       const rect = gl.domElement.getBoundingClientRect();
       
@@ -129,10 +203,14 @@ export default function SurfaceRaycaster({ meshRef, onSurfaceClick, enabled = tr
       }
     };
 
-    gl.domElement.addEventListener('click', handleClick);
+    gl.domElement.addEventListener('mousedown', handleMouseDown);
+    gl.domElement.addEventListener('mousemove', handleMouseMove);
+    gl.domElement.addEventListener('mouseup', handleMouseUp);
 
     return () => {
-      gl.domElement.removeEventListener('click', handleClick);
+      gl.domElement.removeEventListener('mousedown', handleMouseDown);
+      gl.domElement.removeEventListener('mousemove', handleMouseMove);
+      gl.domElement.removeEventListener('mouseup', handleMouseUp);
     };
   }, [enabled, meshRef, camera, gl, scene, raycaster, mouse, onSurfaceClick]);
 

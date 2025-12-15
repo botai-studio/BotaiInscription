@@ -4,13 +4,15 @@ import { OrbitControls } from '@react-three/drei';
 import { EffectComposer, N8AO } from '@react-three/postprocessing';
 import * as THREE from 'three';
 import MorpheusModel from './components/Scene/MorpheusModel';
+import LofiModel from './components/Scene/LofiModel';
 import ClipModel from './components/Scene/ClipModel';
 import SurfaceRaycaster from './components/SurfaceInscription/SurfaceRaycaster';
 import ClickMarker from './components/SurfaceInscription/ClickMarker';
 import UVTextMapper from './components/SurfaceInscription/UVTextMapper';
 import UVPanel from './components/UI/UVPanel';
 import ControlPanel from './components/UI/ControlPanel';
-import { subtractGeometry } from './utils/csgUtils';
+import { useTutorial } from './components/UI/Tutorial';
+import { subtractGeometry, unionGeometry } from './utils/csgUtils';
 import { downloadSTL, uploadToGoogleDrive, generateGUID } from './utils/stlExporter';
 import './App.css';
 
@@ -18,13 +20,16 @@ import './App.css';
 let inscriptionIdCounter = 1;
 const generateId = () => `inscription-${inscriptionIdCounter++}`;
 
-// Available fonts
+// Available fonts (Three.js built-in + Google Fonts via @compai)
 const AVAILABLE_FONTS = [
+  // Three.js built-in fonts
   { id: 'helvetiker', name: 'Helvetica', url: 'https://threejs.org/examples/fonts/helvetiker_regular.typeface.json' },
-  { id: 'gentilis', name: 'Garamond', url: 'https://threejs.org/examples/fonts/gentilis_regular.typeface.json' },
   { id: 'optimer', name: 'Optimer', url: 'https://threejs.org/examples/fonts/optimer_regular.typeface.json' },
-  { id: 'droid_sans', name: 'Droid Sans', url: 'https://threejs.org/examples/fonts/droid/droid_sans_regular.typeface.json' },
-  { id: 'droid_serif', name: 'Droid Serif', url: 'https://threejs.org/examples/fonts/droid/droid_serif_regular.typeface.json' }
+  { id: 'gentilis', name: 'Gentilis', url: 'https://threejs.org/examples/fonts/gentilis_regular.typeface.json' },
+  // Google Fonts via @compai (jsdelivr CDN)
+  { id: 'roboto', name: 'Roboto', url: 'https://cdn.jsdelivr.net/npm/@compai/font-roboto@0.0.4/data/typefaces/normal-400.json' },
+  { id: 'open-sans', name: 'Open Sans', url: 'https://cdn.jsdelivr.net/npm/@compai/font-open-sans@0.0.4/data/typefaces/normal-400.json' },
+  { id: 'merriweather', name: 'Merriweather', url: 'https://cdn.jsdelivr.net/npm/@compai/font-merriweather@0.0.4/data/typefaces/normal-400.json' }
 ];
 
 // Default inscription values
@@ -40,6 +45,13 @@ const createDefaultInscription = () => ({
 });
 
 function App() {
+  // Check URL parameter for mode (dev or prod, default is prod)
+  // Check URL parameter for mode (dev or prod, default is prod)
+  const devMode = useMemo(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('mode') === 'dev';
+  }, []);
+
   // Inscriptions list
   const [inscriptions, setInscriptions] = useState([createDefaultInscription()]);
   const [selectedInscriptionId, setSelectedInscriptionId] = useState(inscriptions[0].id);
@@ -60,15 +72,36 @@ function App() {
   const [showUVPanel, setShowUVPanel] = useState(true);
   const [showClipModel, setShowClipModel] = useState(true);
   
+  // Dev settings - default 0.5 in dev mode, 2.0 in prod mode
+  const [maxTriangleEdge, setMaxTriangleEdge] = useState(() => {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('mode') === 'dev' ? 0.5 : 2.0;
+  });
+  
+  // Loading state
+  const [isLoading, setIsLoading] = useState(true);
+  
+  // Inscribing state
+  const [isInscribing, setIsInscribing] = useState(false);
+  
+  // Hover state for preview dot
+  const [hoverData, setHoverData] = useState(null);
+  
   // Order state
   const [email, setEmail] = useState('');
   const [isOrdering, setIsOrdering] = useState(false);
   
-  // Mesh reference
-  const morpheusRef = useRef(null);
+  // Tutorial
+  const tutorial = useTutorial(isLoading);
+  
+  // Mesh references
+  const morpheusRef = useRef(null);  // UV model (always used for raycast/UV mapping)
+  const lofiRef = useRef(null);       // Lofi model (visible in prod, receives CSG)
+  const clipRef = useRef(null);
   
   // Store original geometry for reset
-  const originalGeometryRef = useRef(null);
+  const originalGeometryRef = useRef(null);      // For UV model
+  const originalLofiGeometryRef = useRef(null);  // For lofi model
   
   // Store last valid clickData for each inscription (to restore if new click goes out of bounds)
   const lastValidClickDataRef = useRef({});
@@ -107,11 +140,25 @@ function App() {
     setUVData(data);
   }, []);
 
-  // Handle model ready - store original geometry for reset
+  // Handle model ready - store original geometry for reset (UV model)
   const handleModelReady = useCallback((geometry) => {
     originalGeometryRef.current = geometry;
-    console.log('💾 Original geometry stored:', geometry.attributes.position.count, 'vertices');
-  }, []);
+    console.log('💾 Original UV geometry stored:', geometry.attributes.position.count, 'vertices');
+    // In dev mode, loading is done when UV model is ready
+    if (devMode) {
+      setIsLoading(false);
+    }
+  }, [devMode]);
+
+  // Handle lofi model ready - store original geometry for reset
+  const handleLofiModelReady = useCallback((geometry) => {
+    originalLofiGeometryRef.current = geometry;
+    console.log('💾 Original Lofi geometry stored:', geometry.attributes.position.count, 'vertices');
+    // In prod mode, loading is done when lofi model is ready
+    if (!devMode) {
+      setIsLoading(false);
+    }
+  }, [devMode]);
 
   // Handle text geometry ready from UVTextMapper
   const handleTextGeometryReady = useCallback((inscriptionId, data) => {
@@ -205,9 +252,12 @@ function App() {
     setSelectedInscriptionId(newInscription.id);
   }, []);
 
-  // Apply all inscriptions (CSG subtraction)
+  // Apply all inscriptions (CSG subtraction) then union with clip
   const handleApplyInscriptions = useCallback(() => {
-    if (!morpheusRef.current) {
+    // In prod mode, use lofi model; in dev mode, use UV model
+    const targetRef = devMode ? morpheusRef : lofiRef;
+    
+    if (!targetRef.current) {
       console.warn('⚠️ No mesh reference');
       return;
     }
@@ -220,18 +270,24 @@ function App() {
       return;
     }
 
+    // Show inscribing overlay
+    setIsInscribing(true);
+    
+    // Use setTimeout to allow UI to update before heavy CSG operations
+    setTimeout(() => {
     console.log('🔪 Applying', inscriptionsWithGeometry.length, 'inscriptions...');
+    console.log(`   Using ${devMode ? 'UV model (dev)' : 'Lofi model (prod)'}`);    
 
-    // Find the mesh
+    // Find the bowtie mesh
     let targetMesh = null;
-    morpheusRef.current.traverse((child) => {
+    targetRef.current.traverse((child) => {
       if (child.isMesh && !targetMesh) {
         targetMesh = child;
       }
     });
 
     if (!targetMesh) {
-      console.error('❌ No mesh found');
+      console.error('❌ No bowtie mesh found');
       return;
     }
 
@@ -245,6 +301,32 @@ function App() {
       resultGeometry = subtractGeometry(resultGeometry, inscription.geometry);
     }
 
+    // Union with clip model if available
+    if (clipRef.current) {
+      let clipMesh = null;
+      clipRef.current.traverse((child) => {
+        if (child.isMesh && !clipMesh) {
+          clipMesh = child;
+        }
+      });
+
+      if (clipMesh) {
+        console.log('🔗 Joining with clip model...');
+        // Get clip geometry in world space
+        let clipGeometry = clipMesh.geometry.clone();
+        clipGeometry.applyMatrix4(clipMesh.matrixWorld);
+        
+        // Union the carved bowtie with the clip
+        // Only simplify in dev mode (prod needs full detail for manufacturing)
+        resultGeometry = unionGeometry(resultGeometry, clipGeometry, devMode);
+        console.log('✅ Union complete');
+      } else {
+        console.warn('⚠️ No clip mesh found for union');
+      }
+    } else {
+      console.warn('⚠️ No clip reference for union');
+    }
+
     // Transform back to local space
     const inverseMatrix = new THREE.Matrix4().copy(targetMesh.matrixWorld).invert();
     resultGeometry.applyMatrix4(inverseMatrix);
@@ -255,12 +337,19 @@ function App() {
 
     setIsCarved(true);
     setShowTextMesh(false); // Hide text meshes after carving
-    console.log('✅ All inscriptions applied!');
-  }, [inscriptions]);
+    setShowClipModel(false); // Hide clip model since it's now part of the combined mesh
+    setIsInscribing(false); // Hide inscribing overlay
+    console.log('✅ All inscriptions applied and joined with clip!');
+    }, 50); // Small delay to allow overlay to render
+  }, [inscriptions, devMode]);
 
   // Reset to original mesh
   const handleReset = useCallback(() => {
-    if (!morpheusRef.current || !originalGeometryRef.current) {
+    // In prod mode, reset lofi model; in dev mode, reset UV model
+    const targetRef = devMode ? morpheusRef : lofiRef;
+    const originalRef = devMode ? originalGeometryRef : originalLofiGeometryRef;
+    
+    if (!targetRef.current || !originalRef.current) {
       console.warn('⚠️ Cannot reset: no original geometry');
       return;
     }
@@ -268,33 +357,47 @@ function App() {
     console.log('↺ Resetting to original mesh...');
 
     // Find the mesh and restore original geometry
-    morpheusRef.current.traverse((child) => {
+    targetRef.current.traverse((child) => {
       if (child.isMesh) {
         child.geometry.dispose();
-        child.geometry = originalGeometryRef.current.clone();
+        child.geometry = originalRef.current.clone();
       }
     });
 
-    // Reset state
-    const newInscription = createDefaultInscription();
-    setInscriptions([newInscription]);
-    setSelectedInscriptionId(newInscription.id);
+    // Reset inscriptions but preserve settings (text, scale, depth, font, rotation)
+    setInscriptions(prev => prev.map(inscription => ({
+      ...inscription,
+      clickData: null,  // Clear position
+      geometry: null    // Clear generated geometry
+    })));
+    
+    // Clear stored valid positions
+    lastValidClickDataRef.current = {};
+    
+    // Clear UV warnings
+    setUvWarnings({});
+    
+    // Reset carve state
     setIsCarved(false);
     setShowTextMesh(true);
+    setShowClipModel(true); // Show clip model again after reset
 
     console.log('✅ Reset complete');
-  }, []);
+  }, [devMode]);
 
   // Handle STL download
   const handleDownloadSTL = useCallback(() => {
-    if (!morpheusRef.current) {
+    // In prod mode, use lofi model; in dev mode, use UV model
+    const targetRef = devMode ? morpheusRef : lofiRef;
+    
+    if (!targetRef.current) {
       alert('No model available.');
       return;
     }
 
     // Find the mesh
     let targetMesh = null;
-    morpheusRef.current.traverse((child) => {
+    targetRef.current.traverse((child) => {
       if (child.isMesh && !targetMesh) {
         targetMesh = child;
       }
@@ -314,6 +417,103 @@ function App() {
       console.error('Download failed:', error);
       alert(`Download failed: ${error.message}`);
     }
+  }, [devMode]);
+
+  // Handle JSON download (dev mode)
+  const handleDownloadJSON = useCallback(() => {
+    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    
+    const jsonData = {
+      timestamp: new Date().toISOString(),
+      inscriptions: inscriptions.map(i => ({
+        id: i.id,
+        text: i.text,
+        scale: i.scale,
+        depth: i.depth,
+        font: i.font,
+        rotation: i.rotation,
+        clickData: i.clickData ? {
+          point: { x: i.clickData.point.x, y: i.clickData.point.y, z: i.clickData.point.z },
+          normal: { x: i.clickData.normal.x, y: i.clickData.normal.y, z: i.clickData.normal.z },
+          uv: { x: i.clickData.uv.x, y: i.clickData.uv.y },
+          faceIndex: i.clickData.faceIndex,
+          tangent: i.clickData.tangent ? { x: i.clickData.tangent.x, y: i.clickData.tangent.y, z: i.clickData.tangent.z } : null,
+          bitangent: i.clickData.bitangent ? { x: i.clickData.bitangent.x, y: i.clickData.bitangent.y, z: i.clickData.bitangent.z } : null,
+          uvTangent: i.clickData.uvTangent ? { x: i.clickData.uvTangent.x, y: i.clickData.uvTangent.y } : null,
+          uvBitangent: i.clickData.uvBitangent ? { x: i.clickData.uvBitangent.x, y: i.clickData.uvBitangent.y } : null
+        } : null
+      }))
+    };
+    
+    const jsonString = JSON.stringify(jsonData, null, 2);
+    const blob = new Blob([jsonString], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `botai_inscription_${timestamp}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+    
+    console.log('✅ JSON download initiated');
+  }, [inscriptions]);
+
+  // Handle loading JSON settings (dev mode)
+  const handleLoadJSON = useCallback((event) => {
+    const file = event.target.files[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      try {
+        const jsonData = JSON.parse(e.target.result);
+        
+        if (!jsonData.inscriptions || !Array.isArray(jsonData.inscriptions)) {
+          throw new Error('Invalid JSON format: missing inscriptions array');
+        }
+
+        // Convert loaded inscriptions to the app format
+        const loadedInscriptions = jsonData.inscriptions.map((i, index) => ({
+          id: `inscription-loaded-${index + 1}`,
+          text: i.text || 'Botai',
+          scale: i.scale || 0.015,
+          depth: i.depth || 0.5,
+          font: i.font || 'helvetiker',
+          rotation: i.rotation || 0,
+          clickData: i.clickData ? {
+            point: new THREE.Vector3(i.clickData.point.x, i.clickData.point.y, i.clickData.point.z),
+            normal: new THREE.Vector3(i.clickData.normal.x, i.clickData.normal.y, i.clickData.normal.z),
+            uv: new THREE.Vector2(i.clickData.uv.x, i.clickData.uv.y),
+            faceIndex: i.clickData.faceIndex,
+            tangent: i.clickData.tangent ? new THREE.Vector3(i.clickData.tangent.x, i.clickData.tangent.y, i.clickData.tangent.z) : null,
+            bitangent: i.clickData.bitangent ? new THREE.Vector3(i.clickData.bitangent.x, i.clickData.bitangent.y, i.clickData.bitangent.z) : null,
+            uvTangent: i.clickData.uvTangent ? new THREE.Vector2(i.clickData.uvTangent.x, i.clickData.uvTangent.y) : null,
+            uvBitangent: i.clickData.uvBitangent ? new THREE.Vector2(i.clickData.uvBitangent.x, i.clickData.uvBitangent.y) : null
+          } : null,
+          geometry: null
+        }));
+
+        setInscriptions(loadedInscriptions);
+        setSelectedInscriptionId(loadedInscriptions[0]?.id);
+        setIsCarved(false);
+        setUvWarnings({});
+        
+        // Clear stored valid positions
+        lastValidClickDataRef.current = {};
+
+        console.log('✅ Loaded', loadedInscriptions.length, 'inscriptions from JSON');
+        alert(`Loaded ${loadedInscriptions.length} inscription(s) from JSON`);
+      } catch (error) {
+        console.error('Failed to load JSON:', error);
+        alert('Failed to load JSON: ' + error.message);
+      }
+    };
+    reader.readAsText(file);
+    
+    // Reset file input so the same file can be loaded again
+    event.target.value = '';
   }, []);
 
   // Handle order submission
@@ -323,14 +523,17 @@ function App() {
       return;
     }
 
-    if (!morpheusRef.current) {
+    // In prod mode, use lofi model; in dev mode, use UV model
+    const targetRef = devMode ? morpheusRef : lofiRef;
+    
+    if (!targetRef.current) {
       alert('No model available.');
       return;
     }
 
     // Find the mesh
     let targetMesh = null;
-    morpheusRef.current.traverse((child) => {
+    targetRef.current.traverse((child) => {
       if (child.isMesh && !targetMesh) {
         targetMesh = child;
       }
@@ -350,7 +553,10 @@ function App() {
       
       // Build product name
       const productName = `Botai Custom Inscription-${confirmationNumber}`;
-      const price = 60; // Base price
+      
+      // Calculate price: base $88 + $1 per character
+      const totalCharacters = inscriptions.reduce((sum, i) => sum + (i.text?.length || 0), 0);
+      const price = 88 + totalCharacters;
       
       console.log('Creating Order:', {
         guid,
@@ -425,7 +631,7 @@ function App() {
       alert('Order failed: ' + error.message);
       setIsOrdering(false);
     }
-  }, [email, inscriptions]);
+  }, [email, inscriptions, devMode]);
 
   return (
     <div className="app-container">
@@ -451,36 +657,69 @@ function App() {
         setShowUVPanel={setShowUVPanel}
         showClipModel={showClipModel}
         setShowClipModel={setShowClipModel}
+        maxTriangleEdge={maxTriangleEdge}
+        setMaxTriangleEdge={setMaxTriangleEdge}
         onDownloadSTL={handleDownloadSTL}
+        onDownloadJSON={handleDownloadJSON}
+        onLoadJSON={handleLoadJSON}
         email={email}
         setEmail={setEmail}
         onOrder={handleOrder}
         isOrdering={isOrdering}
+        devMode={devMode}
       />
 
       {/* 3D Canvas */}
       <div className="canvas-container">
-        <Canvas camera={{ position: [0, 0, 280], fov: 20 }}>
+        <Canvas camera={{ position: [0, 0, 380], fov: 20 }}>
           <color attach="background" args={['#fafafa']} />
           
           {/* Lighting */}
-          <ambientLight intensity={0.5} />
-          <directionalLight position={[10, 10, 5]} intensity={1} />
-          <directionalLight position={[-10, -10, -5]} intensity={0.5} />
+          <ambientLight intensity={0.3} />
+          <directionalLight position={[0, 0, 10]} intensity={1} />
+          {/* <directionalLight position={[-10, -10, -5]} intensity={0.5} /> */}
+          {/* Rim light from behind to highlight carved edges */}
+          <directionalLight position={[0, 0, -10]} intensity={0.8} color="#ffffff" />
+          {/* <directionalLight position={[5, -5, -8]} intensity={0.4} color="#e0e0ff" /> */}
           
           {/* Models */}
-          <MorpheusModel ref={morpheusRef} onUVDataReady={handleUVDataReady} onModelReady={handleModelReady} />
-          <ClipModel visible={showClipModel} />
+          {/* UV Model - always loaded for UV mapping/raycasting, visible only in dev mode */}
+          <MorpheusModel 
+            ref={morpheusRef} 
+            onUVDataReady={handleUVDataReady} 
+            onModelReady={handleModelReady}
+            visible={devMode}  
+          />
           
-          {/* Surface interaction */}
+          {/* Lofi Model - loaded and visible only in prod mode, receives CSG operations */}
+          {!devMode && (
+            <LofiModel 
+              ref={lofiRef} 
+              onModelReady={handleLofiModelReady}
+              visible={true}
+            />
+          )}
+          
+          <ClipModel ref={clipRef} visible={showClipModel} />
+          
+          {/* Surface interaction - always uses UV model for raycasting */}
           <SurfaceRaycaster 
             meshRef={morpheusRef}
             onSurfaceClick={handleSurfaceClick}
+            onHover={setHoverData}
             enabled={!isCarved}
           />
           
+          {/* Hover preview dot */}
+          {hoverData && !isCarved && (
+            <mesh position={hoverData.point.clone().addScaledVector(hoverData.normal, 0.1)}>
+              <sphereGeometry args={[0.3, 16, 16]} />
+              <meshBasicMaterial color="#4a90d9" opacity={0.7} transparent />
+            </mesh>
+          )}
+          
           {/* Click markers for all placed inscriptions */}
-          {showMarker && inscriptions.map(inscription => 
+          {showMarker && !isCarved && inscriptions.map(inscription => 
             inscription.clickData && (
               <ClickMarker
                 key={`marker-${inscription.id}`}
@@ -507,29 +746,95 @@ function App() {
                 fontId={inscription.font}
                 rotation={inscription.rotation}
                 availableFonts={AVAILABLE_FONTS}
+                maxTriangleSize={maxTriangleEdge}
                 onTextDataReady={(data) => handleTextGeometryReady(inscription.id, data)}
                 onOutOfBounds={(isOOB, count) => handleOutOfBounds(inscription.id, isOOB, count)}
               />
             )
           )}
           
-          {/* Post-processing effects */}
+          {/* Post-processing effects - Strong AO for visible inscriptions */}
           <EffectComposer>
-            <N8AO aoRadius={0.15} intensity={4} distanceFalloff={2} />
+            <N8AO 
+              aoRadius={0.8} 
+              intensity={3} 
+              distanceFalloff={1} 
+              color="black"
+              aoSamples={16}
+              denoiseSamples={8}
+            />
           </EffectComposer>
           
           {/* Camera controls */}
           <OrbitControls />
         </Canvas>
         
-        {/* 2D UV Panel */}
-        {showUVPanel && (
+        {/* 2D UV Panel - only in dev mode */}
+        {devMode && showUVPanel && (
           <UVPanel
             uvData={uvData}
             clickData={selectedInscription?.clickData}
             gridData={null}
             textData={null}
           />
+        )}
+        
+        {/* Loading overlay */}
+        {isLoading && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            color: 'white',
+            zIndex: 1001
+          }}>
+            <div className="upload-icon">
+              {/* Ring only - no arrow */}
+            </div>
+            <div style={{
+              fontSize: '24px',
+              fontWeight: 'bold',
+              marginTop: '10px'
+            }}>
+              Loading Botai...
+            </div>
+          </div>
+        )}
+        
+        {/* Inscribing overlay */}
+        {isInscribing && (
+          <div style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            right: 0,
+            bottom: 0,
+            backgroundColor: 'rgba(0, 0, 0, 0.8)',
+            display: 'flex',
+            flexDirection: 'column',
+            justifyContent: 'center',
+            alignItems: 'center',
+            color: 'white',
+            zIndex: 1000
+          }}>
+            <div className="upload-icon">
+              {/* Ring only - no arrow */}
+            </div>
+            <div style={{
+              fontSize: '24px',
+              fontWeight: 'bold',
+              marginTop: '10px'
+            }}>
+              Inscribing...
+            </div>
+          </div>
         )}
         
         {/* Upload overlay */}
@@ -574,7 +879,13 @@ function App() {
             </div>
           </div>
         )}
+        
+        {/* Tutorial help button (inside canvas) */}
+        {tutorial.helpButton}
       </div>
+      
+      {/* Tutorial overlay */}
+      {tutorial.overlay}
     </div>
   );
 }
