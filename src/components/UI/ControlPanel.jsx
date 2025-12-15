@@ -1,16 +1,22 @@
 import React, { useState, useRef, useEffect } from 'react';
 
 // Available fonts (Three.js built-in + Google Fonts via @compai)
+// minSize: minimum font size (1-5), where 1=0.015, 5=0.035
 const AVAILABLE_FONTS = [
   // Three.js built-in fonts
-  { id: 'helvetiker', name: 'Helvetica' },
-  { id: 'optimer', name: 'Optimer' },
-  { id: 'gentilis', name: 'Gentilis' },
+  { id: 'helvetiker', name: 'Helvetica', minSize: 1 },
+  { id: 'optimer', name: 'Optimer', minSize: 4 },
+  { id: 'gentilis', name: 'Gentilis', minSize: 4 },
   // Google Fonts via @compai
-  { id: 'roboto', name: 'Roboto' },
-  { id: 'open-sans', name: 'Open Sans' },
-  { id: 'merriweather', name: 'Merriweather' }
+  { id: 'roboto', name: 'Roboto', minSize: 1 },
+  { id: 'open-sans', name: 'Open Sans', minSize: 1 },
+  { id: 'merriweather', name: 'Merriweather', minSize: 2 }
 ];
+
+// Helper to convert scale to font size (1-5)
+const scaleToFontSize = (scale) => Math.round((scale - 0.015) / 0.005) + 1;
+// Helper to convert font size (1-5) to scale
+const fontSizeToScale = (size) => 0.015 + (size - 1) * 0.005;
 
 /**
  * TextInput - Input that only updates parent on blur or Enter
@@ -180,23 +186,33 @@ export default function ControlPanel({
                 />
               </div>
               
-              {/* Scale Slider */}
-              <div className="form-field">
-                <label className="form-field__label">
-                  <span>Scale</span>
-                  <span>{inscription.scale.toFixed(3)}</span>
-                </label>
-                <input
-                  type="range"
-                  min="0.01"
-                  max="0.05"
-                  step="0.001"
-                  value={inscription.scale}
-                  onChange={(e) => updateInscription(inscription.id, { scale: parseFloat(e.target.value) })}
-                  onClick={(e) => e.stopPropagation()}
-                  className="slider"
-                />
-              </div>
+              {/* Font Size Slider */}
+              {(() => {
+                const fontConfig = AVAILABLE_FONTS.find(f => f.id === inscription.font) || AVAILABLE_FONTS[0];
+                const minSize = fontConfig.minSize || 1;
+                const currentSize = scaleToFontSize(inscription.scale);
+                return (
+                  <div className="form-field">
+                    <label className="form-field__label">
+                      <span>Font Size</span>
+                      <span>{currentSize}</span>
+                    </label>
+                    <input
+                      type="range"
+                      min={minSize}
+                      max="5"
+                      step="1"
+                      value={Math.max(currentSize, minSize)}
+                      onChange={(e) => updateInscription(inscription.id, { scale: fontSizeToScale(parseInt(e.target.value)) })}
+                      onClick={(e) => e.stopPropagation()}
+                      className="slider"
+                    />
+                    {minSize > 1 && (
+                      <div className="form-field__hint">Min size {minSize} for this font</div>
+                    )}
+                  </div>
+                );
+              })()}
               
               {/* Depth Slider */}
               <div className="form-field">
@@ -206,9 +222,9 @@ export default function ControlPanel({
                 </label>
                 <input
                   type="range"
-                  min="0.05"
-                  max="1.0"
-                  step="0.05"
+                  min="0.5"
+                  max="1.5"
+                  step="0.3"
                   value={inscription.depth}
                   onChange={(e) => updateInscription(inscription.id, { depth: parseFloat(e.target.value) })}
                   onClick={(e) => e.stopPropagation()}
@@ -239,7 +255,18 @@ export default function ControlPanel({
                 <label className="form-field__label form-field__label--block">Font</label>
                 <select
                   value={inscription.font}
-                  onChange={(e) => updateInscription(inscription.id, { font: e.target.value })}
+                  onChange={(e) => {
+                    const newFont = e.target.value;
+                    const fontConfig = AVAILABLE_FONTS.find(f => f.id === newFont);
+                    const minSize = fontConfig?.minSize || 1;
+                    const currentSize = scaleToFontSize(inscription.scale);
+                    // Auto-adjust scale if below minimum for new font
+                    if (currentSize < minSize) {
+                      updateInscription(inscription.id, { font: newFont, scale: fontSizeToScale(minSize) });
+                    } else {
+                      updateInscription(inscription.id, { font: newFont });
+                    }
+                  }}
                   onClick={(e) => e.stopPropagation()}
                   className="card-select"
                 >

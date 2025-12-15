@@ -143,10 +143,11 @@ export default function UVTextMapper({
     const faceIndices = subdivIndices;
 
     // Transform edge vertices to UV space (using rotated tangent)
-    const uvEdgeVertices = edgeVertices.map(({ x, y, isGap }) => ({
+    const uvEdgeVertices = edgeVertices.map(({ x, y, isGap, isHole }) => ({
       u: uv.x + x * rotatedTangent.x + y * uvBitangent.x,
       v: uv.y + x * rotatedTangent.y + y * uvBitangent.y,
-      isGap
+      isGap,
+      isHole
     }));
 
     // Map UV vertices to 3D using cached grid
@@ -261,8 +262,16 @@ export default function UVTextMapper({
       const b1 = backEdgeStart + i + 1;
 
       // Two triangles per quad
-      indices.push(f0, b0, f1);
-      indices.push(f1, b0, b1);
+      // Holes need reversed winding to face inward
+      if (uvEdgeVertices[i].isHole) {
+        // Reversed winding for holes
+        indices.push(f0, f1, b0);
+        indices.push(f1, b1, b0);
+      } else {
+        // Normal winding for outer contours
+        indices.push(f0, b0, f1);
+        indices.push(f1, b0, b1);
+      }
     }
 
     console.log(`   Total: ${positions.length / 3} vertices, ${indices.length / 3} triangles`);
@@ -418,30 +427,30 @@ function extractShapeEdges(shapes, scale) {
   shapes.forEach((shape, shapeIdx) => {
     // Add gap marker between shapes
     if (shapeIdx > 0) {
-      edgePoints.push({ x: 0, y: 0, isGap: true });
+      edgePoints.push({ x: 0, y: 0, isGap: true, isHole: false });
     }
     
-    // Main shape contour
+    // Main shape contour (outer contour - winds counter-clockwise)
     const shapePoints = shape.getPoints(12);
     shapePoints.forEach(pt => {
-      edgePoints.push({ x: pt.x * scale, y: pt.y * scale, isGap: false });
+      edgePoints.push({ x: pt.x * scale, y: pt.y * scale, isGap: false, isHole: false });
     });
     // Close the contour
     if (shapePoints.length > 0) {
-      edgePoints.push({ x: shapePoints[0].x * scale, y: shapePoints[0].y * scale, isGap: false });
+      edgePoints.push({ x: shapePoints[0].x * scale, y: shapePoints[0].y * scale, isGap: false, isHole: false });
     }
     
-    // Holes
+    // Holes (inner contours - wind clockwise, need reversed winding for side walls)
     if (shape.holes) {
       shape.holes.forEach((hole) => {
-        edgePoints.push({ x: 0, y: 0, isGap: true }); // Gap before hole
+        edgePoints.push({ x: 0, y: 0, isGap: true, isHole: true }); // Gap before hole
         const holePoints = hole.getPoints(12);
         holePoints.forEach(pt => {
-          edgePoints.push({ x: pt.x * scale, y: pt.y * scale, isGap: false });
+          edgePoints.push({ x: pt.x * scale, y: pt.y * scale, isGap: false, isHole: true });
         });
         // Close hole contour
         if (holePoints.length > 0) {
-          edgePoints.push({ x: holePoints[0].x * scale, y: holePoints[0].y * scale, isGap: false });
+          edgePoints.push({ x: holePoints[0].x * scale, y: holePoints[0].y * scale, isGap: false, isHole: true });
         }
       });
     }

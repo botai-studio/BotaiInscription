@@ -375,6 +375,13 @@ body {
   margin-bottom: 4px;
 }
 
+.form-field__hint {
+  font-size: 9px;
+  color: #999;
+  margin-top: 2px;
+  font-style: italic;
+}
+
 /* Text input in card */
 .card-input {
   width: 100%;

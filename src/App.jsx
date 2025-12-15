@@ -36,7 +36,7 @@ const AVAILABLE_FONTS = [
 const createDefaultInscription = () => ({
   id: generateId(),
   text: 'Botai',
-  scale: 0.01,
+  scale: 0.015,
   depth: 0.5,
   font: 'helvetiker',
   rotation: 0,
