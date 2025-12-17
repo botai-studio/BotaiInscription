@@ -91,6 +91,9 @@ function App() {
   const [email, setEmail] = useState('');
   const [isOrdering, setIsOrdering] = useState(false);
   
+  // Loaded order confirmation number (from JSON)
+  const [loadedConfirmationNumber, setLoadedConfirmationNumber] = useState(null);
+  
   // Tutorial
   const tutorial = useTutorial(isLoading);
   
@@ -409,7 +412,9 @@ function App() {
     }
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const filename = `botai_inscription_${timestamp}.stl`;
+    const filename = loadedConfirmationNumber 
+      ? `botai_${loadedConfirmationNumber}.stl`
+      : `botai_inscription_${timestamp}.stl`;
 
     try {
       downloadSTL(targetMesh.geometry, filename);
@@ -417,11 +422,14 @@ function App() {
       console.error('Download failed:', error);
       alert(`Download failed: ${error.message}`);
     }
-  }, [devMode]);
+  }, [devMode, loadedConfirmationNumber]);
 
   // Handle JSON download (dev mode)
   const handleDownloadJSON = useCallback(() => {
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const filename = loadedConfirmationNumber
+      ? `botai_${loadedConfirmationNumber}.json`
+      : `botai_inscription_${timestamp}.json`;
     
     const jsonData = {
       timestamp: new Date().toISOString(),
@@ -451,14 +459,14 @@ function App() {
     
     const link = document.createElement('a');
     link.href = url;
-    link.download = `botai_inscription_${timestamp}.json`;
+    link.download = filename;
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
     URL.revokeObjectURL(url);
     
     console.log('✅ JSON download initiated');
-  }, [inscriptions]);
+  }, [inscriptions, loadedConfirmationNumber]);
 
   // Handle loading JSON settings (dev mode)
   const handleLoadJSON = useCallback((event) => {
@@ -472,6 +480,25 @@ function App() {
         
         if (!jsonData.inscriptions || !Array.isArray(jsonData.inscriptions)) {
           throw new Error('Invalid JSON format: missing inscriptions array');
+        }
+
+        // Extract confirmation number from JSON or filename
+        // Try from JSON data first (order_XXXXXXXX.json format)
+        let confirmNum = jsonData.confirmationNumber;
+        if (!confirmNum) {
+          // Try to extract from filename (e.g., "order_12345678.json" or "botai_12345678.json")
+          const filenameMatch = file.name.match(/(?:order_|botai_)([A-Za-z0-9-]+)(?:_|\.)/) 
+                              || file.name.match(/^([A-Za-z0-9-]{6,})\.json$/);
+          if (filenameMatch) {
+            confirmNum = filenameMatch[1];
+          }
+        }
+        
+        if (confirmNum) {
+          setLoadedConfirmationNumber(confirmNum);
+          console.log('📋 Loaded confirmation number:', confirmNum);
+        } else {
+          setLoadedConfirmationNumber(null);
         }
 
         // Convert loaded inscriptions to the app format
@@ -503,8 +530,9 @@ function App() {
         // Clear stored valid positions
         lastValidClickDataRef.current = {};
 
+        const confirmMsg = confirmNum ? ` (Order: ${confirmNum})` : '';
         console.log('✅ Loaded', loadedInscriptions.length, 'inscriptions from JSON');
-        alert(`Loaded ${loadedInscriptions.length} inscription(s) from JSON`);
+        alert(`Loaded ${loadedInscriptions.length} inscription(s) from JSON${confirmMsg}`);
       } catch (error) {
         console.error('Failed to load JSON:', error);
         alert('Failed to load JSON: ' + error.message);
