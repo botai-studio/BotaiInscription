@@ -44,6 +44,8 @@ jobs:
       # Step 4: Configures GitHub Pages
       - name: Setup Pages
         uses: actions/configure-pages@v5
+        with:
+          enablement: true
 
       # Step 5: Uploads the build output as an artifact
       - name: Upload artifact
