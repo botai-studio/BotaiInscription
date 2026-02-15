@@ -35,7 +35,7 @@ const AVAILABLE_FONTS = [
 // Default inscription values
 const createDefaultInscription = () => ({
   id: generateId(),
-  text: 'Botai',
+  text: '',
   scale: 0.015,
   depth: 0.5,
   font: 'helvetiker',
@@ -367,15 +367,15 @@ function App() {
       }
     });
 
-    // Reset inscriptions but preserve settings (text, scale, depth, font, rotation)
+    // Reset inscriptions but preserve settings (text, scale, depth, font, rotation) AND position (clickData)
     setInscriptions(prev => prev.map(inscription => ({
       ...inscription,
-      clickData: null,  // Clear position
+      // Keep clickData (position) intact
       geometry: null    // Clear generated geometry
     })));
     
-    // Clear stored valid positions
-    lastValidClickDataRef.current = {};
+    // Don't clear stored valid positions — they match the preserved clickData
+    // lastValidClickDataRef.current = {};
     
     // Clear UV warnings
     setUvWarnings({});
@@ -741,8 +741,8 @@ function App() {
           {/* Hover preview dot */}
           {hoverData && !isCarved && (
             <mesh position={hoverData.point.clone().addScaledVector(hoverData.normal, 0.1)}>
-              <sphereGeometry args={[0.3, 16, 16]} />
-              <meshBasicMaterial color="#4a90d9" opacity={0.7} transparent />
+              <sphereGeometry args={[0.6, 16, 16]} />
+              <meshBasicMaterial color="#4a90d9" opacity={0.95} transparent />
             </mesh>
           )}
           

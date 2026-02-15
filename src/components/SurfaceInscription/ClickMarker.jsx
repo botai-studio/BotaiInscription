@@ -16,7 +16,7 @@ export default function ClickMarker({ position, normal, tangent, bitangent, scal
     <group position={position}>
       {/* Sphere at click point */}
       <mesh>
-        <sphereGeometry args={[0.1 * markerScale, 16, 16]} />
+        <sphereGeometry args={[0.3 * markerScale, 16, 16]} />
         <meshBasicMaterial color={sphereColor} transparent opacity={opacity} />
       </mesh>
       

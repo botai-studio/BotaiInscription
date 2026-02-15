@@ -112,15 +112,23 @@ body {
   }
 }
 
-/* Scrollable content area - overlay scrollbar to prevent layout shift */
+/* Scrollable content area */
 .control-panel-scroll {
   flex: 1;
-  overflow-y: auto;
-  overflow-y: overlay; /* Use overlay scrollbar (doesn't take space) */
+  overflow-y: scroll;
   min-height: 0;
+  scrollbar-width: none; /* Firefox: hide by default */
+  margin-right: -10px;   /* Push scrollbar into parent padding */
+  padding-right: 10px;   /* Keep content in original position */
 }
 
-/* Custom scrollbar styling */
+/* Show scrollbar on hover/active (Firefox) */
+.control-panel-scroll:hover {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 0, 0, 0.2) transparent;
+}
+
+/* Webkit (Chrome/Safari): hide scrollbar by default */
 .control-panel-scroll::-webkit-scrollbar {
   width: 6px;
 }
@@ -130,12 +138,17 @@ body {
 }
 
 .control-panel-scroll::-webkit-scrollbar-thumb {
-  background: rgba(0, 0, 0, 0.2);
+  background: rgba(0, 0, 0, 0);
   border-radius: 3px;
 }
 
-.control-panel-scroll::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 0, 0, 0.4);
+/* Show on hover */
+.control-panel-scroll:hover::-webkit-scrollbar-thumb {
+  background: rgba(0, 0, 0, 0.15);
+}
+
+.control-panel-scroll:hover::-webkit-scrollbar-thumb:hover {
+  background: rgba(0, 0, 0, 0.35);
 }
 
 .control-group {
@@ -298,8 +311,9 @@ body {
 }
 
 .inscription-card--selected {
-  border: 2px solid #000;
-  background: #f8f8f8;
+  border: 2px solid #4A9FE5;
+  background: #f5f9ff;
+  box-shadow: 0 0 0 1px rgba(74, 159, 229, 0.15), 0 2px 8px rgba(74, 159, 229, 0.18);
 }
 
 .inscription-card__header {
@@ -980,4 +994,83 @@ body {
   background: rgba(0, 0, 0, 0.5);
   color: white;
   transform: scale(1.1);
+}
+
+/* ========== Custom Dropdown ========== */
+.custom-dropdown {
+  position: relative;
+  width: 100%;
+}
+
+.custom-dropdown__trigger {
+  width: 100%;
+  padding: 5px 8px;
+  font-size: 11px;
+  border: 1px solid #ddd;
+  border-radius: 0px;
+  background: #fff;
+  cursor: pointer;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  text-align: left;
+  color: #333;
+  font-family: inherit;
+  transition: border-color 0.15s ease;
+  box-sizing: border-box;
+}
+
+.custom-dropdown__trigger:hover {
+  border-color: #bbb;
+}
+
+.custom-dropdown__trigger--open {
+  border-color: #4A9FE5;
+}
+
+.custom-dropdown__value {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.custom-dropdown__arrow {
+  font-size: 10px;
+  color: #999;
+  margin-left: 6px;
+  flex-shrink: 0;
+}
+
+.custom-dropdown__menu {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  background: #fff;
+  border: 1px solid #ddd;
+  border-top: none;
+  z-index: 100;
+  max-height: 180px;
+  overflow-y: auto;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+}
+
+.custom-dropdown__option {
+  padding: 6px 8px;
+  font-size: 11px;
+  color: #333;
+  cursor: pointer;
+  transition: background 0.1s ease;
+  font-family: inherit;
+}
+
+.custom-dropdown__option:hover {
+  background: #f0f6ff;
+}
+
+.custom-dropdown__option--selected {
+  background: #e8f0fe;
+  font-weight: 600;
+  color: #4A9FE5;
 }

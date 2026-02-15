@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 
 // Available fonts (Three.js built-in + Google Fonts via @compai)
 // minSize: minimum font size (1-5), where 1=0.015, 5=0.035
@@ -12,6 +12,57 @@ const AVAILABLE_FONTS = [
   { id: 'open-sans', name: 'Open Sans', minSize: 1 },
   { id: 'merriweather', name: 'Merriweather', minSize: 2 }
 ];
+
+/**
+ * CustomDropdown - Cross-browser consistent styled dropdown
+ */
+function CustomDropdown({ value, options, onChange, onClick }) {
+  const [isOpen, setIsOpen] = useState(false);
+  const dropdownRef = useRef(null);
+  const selectedOption = options.find(o => o.id === value) || options[0];
+
+  // Close on outside click
+  useEffect(() => {
+    if (!isOpen) return;
+    const handleClick = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClick);
+    return () => document.removeEventListener('mousedown', handleClick);
+  }, [isOpen]);
+
+  return (
+    <div
+      ref={dropdownRef}
+      className="custom-dropdown"
+      onClick={(e) => { e.stopPropagation(); if (onClick) onClick(e); }}
+    >
+      <button
+        type="button"
+        className={`custom-dropdown__trigger ${isOpen ? 'custom-dropdown__trigger--open' : ''}`}
+        onClick={() => setIsOpen(!isOpen)}
+      >
+        <span className="custom-dropdown__value">{selectedOption.name}</span>
+        <span className="custom-dropdown__arrow">{isOpen ? '▴' : '▾'}</span>
+      </button>
+      {isOpen && (
+        <div className="custom-dropdown__menu">
+          {options.map(opt => (
+            <div
+              key={opt.id}
+              className={`custom-dropdown__option ${opt.id === value ? 'custom-dropdown__option--selected' : ''}`}
+              onClick={() => { onChange(opt.id); setIsOpen(false); }}
+            >
+              {opt.name}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
 
 // Helper to convert scale to font size (1-5)
 const scaleToFontSize = (scale) => Math.round((scale - 0.015) / 0.005) + 1;
@@ -77,14 +128,16 @@ function DeferredTextInput({ value, onChange, ...props }) {
           title="Confirm text"
           style={{
             padding: '4px 8px',
-            background: hasChanges ? '#000' : '#ccc',
+            background: hasChanges ? '#4A9FE5' : '#ccc',
             color: '#fff',
             border: 'none',
             borderRadius: '4px',
             cursor: 'pointer',
             fontSize: '14px',
             fontWeight: 'bold',
-            minWidth: '28px'
+            minWidth: '28px',
+            boxShadow: hasChanges ? '0 2px 8px rgba(74, 159, 229, 0.4)' : 'none',
+            transition: 'all 0.2s ease'
           }}
         >
           ✓
@@ -147,7 +200,7 @@ export default function ControlPanel({
       <div className="control-panel-scroll">
         {/* Inscription Cards Section */}
         <div>
-          <p className="section-title"><b>Botai</b> Inscriptions</p>
+          <p className="section-title">Personalize your <b>Botai</b></p>
           
           {/* Inscription Cards */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
@@ -180,7 +233,7 @@ export default function ControlPanel({
                   value={inscription.text}
                   onChange={(newText) => updateInscription(inscription.id, { text: newText })}
                   onClick={(e) => e.stopPropagation()}
-                  placeholder="Enter text"
+                  placeholder="Enter your engravings"
                   maxLength="30"
                   className="card-input"
                 />
@@ -253,14 +306,13 @@ export default function ControlPanel({
               {/* Font Selection */}
               <div className="form-field">
                 <label className="form-field__label form-field__label--block">Font</label>
-                <select
+                <CustomDropdown
                   value={inscription.font}
-                  onChange={(e) => {
-                    const newFont = e.target.value;
+                  options={AVAILABLE_FONTS}
+                  onChange={(newFont) => {
                     const fontConfig = AVAILABLE_FONTS.find(f => f.id === newFont);
                     const minSize = fontConfig?.minSize || 1;
                     const currentSize = scaleToFontSize(inscription.scale);
-                    // Auto-adjust scale if below minimum for new font
                     if (currentSize < minSize) {
                       updateInscription(inscription.id, { font: newFont, scale: fontSizeToScale(minSize) });
                     } else {
@@ -268,12 +320,7 @@ export default function ControlPanel({
                     }
                   }}
                   onClick={(e) => e.stopPropagation()}
-                  className="card-select"
-                >
-                  {AVAILABLE_FONTS.map(f => (
-                    <option key={f.id} value={f.id}>{f.name}</option>
-                  ))}
-                </select>
+                />
               </div>
               
               {/* Position Info (if placed) - only in dev mode */}
@@ -288,7 +335,7 @@ export default function ControlPanel({
                 <div className="info-box info-box--warning" style={{ marginTop: '8px', marginBottom: 0 }}>
                   <p>⚠️ {uvWarnings[inscription.id]?.reverted 
                     ? 'Click was outside UV map. Reverted to previous position.' 
-                    : 'Text extends outside UV map. Try reducing scale or repositioning.'}</p>
+                    : 'Fonts stand outside of the Botai, please try to reduce font size or change location.'}</p>
                 </div>
               )}
             </div>
@@ -305,12 +352,17 @@ export default function ControlPanel({
 
       {/* Action Buttons */}
       <div style={{ marginTop: '16px', display: 'flex', flexDirection: 'column', gap: '8px' }}>
+        {!hasPlacedInscriptions && !isCarved && (
+          <div className="info-box" style={{ marginBottom: 0 }}>
+            <p>💡 Click on the Botai to place your engraving, then press Engrave.</p>
+          </div>
+        )}
         <button
           onClick={onApplyInscriptions}
           disabled={!hasPlacedInscriptions || isCarved || hasAnyWarning}
           className="btn btn--primary inscribe-btn"
         >
-          Inscribe
+          Engrave
         </button>
         
         <button onClick={onReset} className="btn btn--secondary">
