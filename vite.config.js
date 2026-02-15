@@ -3,8 +3,7 @@ import react from '@vitejs/plugin-react';
 
 export default defineConfig({
   // Base path for GitHub Pages - must match the repo name
-  // base: '/BotaiInscription/', 
-  base: '/',
+  base: '/BotaiInscription/',
   plugins: [react()],
   server: {
     port: 3000,
